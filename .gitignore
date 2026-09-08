@@ -1,0 +1,18 @@
+node_modules
+.DS_Store
+logs/*
+!logs/.gitkeep
+tmp/*
+!tmp/.gitkeep
+.env
+.env.local
+env.yaml
+schema.json
+coverage/*
+!coverage/.gitkeep
+.code-agent*
+
+# scratch files are ignored, EXCEPT the two committed drop-in proofs
+scratch*
+!scratch-dropin-claude.mjs
+!scratch-dropin-gemini.mjs

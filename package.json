@@ -1,0 +1,89 @@
+{
+	"name": "ak-litellm",
+	"author": "ak@mixpanel.com",
+	"description": "AK's LiteLLM gateway wrapper — drop-in for ak-claude / ak-gemini",
+	"version": "0.1.0",
+	"main": "index.js",
+	"files": [
+		"index.js",
+		"index.cjs",
+		"base.js",
+		"client.js",
+		"compat.js",
+		"models.js",
+		"unsupported.js",
+		"transformer.js",
+		"chat.js",
+		"message.js",
+		"tool-agent.js",
+		"code-agent.js",
+		"rag-agent.js",
+		"json-helpers.js",
+		"logger.js",
+		"cli.js",
+		"types.d.ts",
+		"GUIDE.md",
+		"CHANGELOG.md",
+		".env.example"
+	],
+	"types": "types.d.ts",
+	"exports": {
+		".": {
+			"import": {
+				"types": "./types.d.ts",
+				"default": "./index.js"
+			},
+			"require": {
+				"types": "./types.d.ts",
+				"default": "./index.cjs"
+			}
+		}
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/ak--47/ak-litellm"
+	},
+	"bugs": {
+		"url": "https://github.com/ak--47/ak-litellm/issues"
+	},
+	"homepage": "https://github.com/ak--47/ak-litellm#readme",
+	"scripts": {
+		"prepublishOnly": "npm run typecheck && npm run build:cjs",
+		"post": "npm publish",
+		"release": "npm version patch && npm publish --access public",
+		"update-deps": "npx npm-check-updates -u && npm install",
+		"prune": "rm -rf tmp/*",
+		"test": "node --no-warnings --experimental-vm-modules node_modules/jest/bin/jest.js tests/unit",
+		"test:live": "LITELLM_LIVE=1 node --no-warnings --experimental-vm-modules node_modules/jest/bin/jest.js tests/live",
+		"build:cjs": "esbuild index.js --bundle --platform=node --format=cjs --outfile=index.cjs --external:openai --external:dotenv --external:pino --external:pino-pretty",
+		"refresh-pricing": "node scripts/refresh-pricing.mjs",
+		"coverage": "node --no-warnings --experimental-vm-modules node_modules/jest/bin/jest.js --coverage",
+		"typecheck": "tsc --noEmit"
+	},
+	"type": "module",
+	"keywords": [
+		"litellm",
+		"gateway",
+		"ai wrapper",
+		"claude",
+		"gemini",
+		"openai",
+		"json transform",
+		"chat",
+		"agent",
+		"tool agent"
+	],
+	"license": "ISC",
+	"dependencies": {
+		"dotenv": "^17.3.1",
+		"openai": "^7.4.0",
+		"pino": "^10.3.1",
+		"pino-pretty": "^13.1.3"
+	},
+	"devDependencies": {
+		"@types/jest": "^30.0.0",
+		"esbuild": "^0.27.4",
+		"jest": "^30.3.0",
+		"typescript": "^5.9.3"
+	}
+}
