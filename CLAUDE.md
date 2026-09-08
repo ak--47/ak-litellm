@@ -4,11 +4,13 @@ Guidance for Claude Code when working in `ak-litellm`.
 
 ## Module Overview
 
-`ak-litellm` wraps Mixpanel's LiteLLM gateway (`https://litellm.mixpanel.org`) and presents the same public API as `ak-claude` and `ak-gemini`. It is the fourth package in the `ak-ai-wrappers` workspace. Read the workspace root [CLAUDE.md](../CLAUDE.md) first.
+`ak-litellm` wraps a LiteLLM gateway and presents the same public API as [`ak-claude`](https://github.com/ak--47/ak-claude) and [`ak-gemini`](https://github.com/ak--47/ak-gemini). It defaults to Mixpanel's deployment at `https://litellm.mixpanel.org`; `LITELLM_BASE_URL` points it elsewhere.
 
 **The one design constraint: it is a drop-in.** An app that imports `ak-claude` or `ak-gemini` must run unchanged after swapping only the import line. Every decision in this package follows from that. Before changing anything, ask whether the change breaks a sibling-package caller.
 
-The authoritative design document is `docs/superpowers/specs/2026-09-08-ak-litellm-design.md` in the workspace. It contains the raw live-probe results this package is built on.
+This package is developed inside the private `ak-ai-wrappers` workspace alongside its three sibling packages. If you are working there, read the workspace root `CLAUDE.md` and the design spec at `docs/superpowers/specs/2026-09-08-ak-litellm-design.md` first — the spec holds the raw live-probe results this package is built on. Neither file ships in this repo. Everything you need to work on the package standalone is here.
+
+If a gateway behavior surprises you, check the "Things that will bite you" section below before changing code. Most surprises are upstream facts with a test already asserting them.
 
 ---
 

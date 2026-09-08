@@ -1,6 +1,9 @@
 # ak-litellm
 
-A drop-in replacement for [`ak-claude`](../ak-claude) and [`ak-gemini`](../ak-gemini) that routes every call through Mixpanel's LiteLLM gateway at `https://litellm.mixpanel.org`.
+[![npm](https://img.shields.io/npm/v/ak-litellm.svg)](https://www.npmjs.com/package/ak-litellm)
+[![license](https://img.shields.io/badge/license-ISC-blue.svg)](LICENSE)
+
+A drop-in replacement for [`ak-claude`](https://github.com/ak--47/ak-claude) and [`ak-gemini`](https://github.com/ak--47/ak-gemini) that routes every call through a [LiteLLM](https://github.com/BerriAI/litellm) gateway.
 
 One bearer key. 19 models across Anthropic, Google, OpenAI, DeepSeek, Zhipu, Moonshot and Alibaba. Gateway-authoritative cost on every non-streaming call.
 
@@ -15,6 +18,8 @@ ak-claude and ak-gemini option names both work — `maxTokens` and `maxOutputTok
 
 Two proof scripts live in the repo: [`scratch-dropin-claude.mjs`](scratch-dropin-claude.mjs) and [`scratch-dropin-gemini.mjs`](scratch-dropin-gemini.mjs). Each is ordinary sibling-package application code with a single changed import.
 
+> **Who this is for.** The defaults target Mixpanel's internal gateway at `https://litellm.mixpanel.org`, and you need a key issued by that gateway's operators to use it. Point `LITELLM_BASE_URL` at any other LiteLLM deployment and everything here still works — but the model list, the pricing table and the capability notes below are all specific to the Mixpanel deployment as of 2026-09-08. Regenerate them for your own gateway with `npm run refresh-pricing`.
+
 ---
 
 ## Quick Start
@@ -26,7 +31,7 @@ npm install ak-litellm
 ```bash
 # .env
 LITELLM_API_KEY=sk-...
-LITELLM_BASE_URL=https://litellm.mixpanel.org
+LITELLM_BASE_URL=https://litellm.mixpanel.org   # optional — this is the default
 ```
 
 ```javascript
@@ -43,8 +48,9 @@ console.log(usage.costSource);     // 'gateway'
 There is a CLI for quick checks:
 
 ```bash
-node cli.js --models          # list every model, its rate, and its capability flags
-MODEL=gpt-5.5 node cli.js     # interactive streamed chat
+npx ak-litellm --models         # list every model, its rate, and its capability flags
+MODEL=gpt-5.5 npx ak-litellm    # interactive streamed chat
+EFFORT=high npx ak-litellm      # same, with reasoning turned up
 ```
 
 ---
@@ -305,19 +311,48 @@ import {
 
 ---
 
-## Testing
+## Requirements
+
+Node 22 or newer. The `openai` SDK v7 sets that floor.
+
+---
+
+## Contributing
 
 ```bash
-npm test          # unit suite — fully offline, mocks the openai SDK, no spend
-npm run test:live # live suite — needs LITELLM_LIVE=1, costs under a cent
-npm run typecheck
-npm run build:cjs
+git clone https://github.com/ak--47/ak-litellm.git
+cd ak-litellm
+npm install
+cp .env.example .env    # then add your gateway key
+
+npm test                # unit suite — fully offline, mocks the openai SDK, no spend
+npm run typecheck       # tsc --noEmit
+npm run build:cjs       # esbuild → index.cjs
+npm run test:live       # live suite — needs LITELLM_LIVE=1, costs under a cent
+npm run refresh-pricing # regenerate the models.js table from your gateway
 ```
 
-The unit suite runs with the network unavailable. The live suite uses `claude-haiku-4-5` with low token caps and asserts its own total spend stays under $0.50.
+The unit suite mocks the `openai` module and cannot reach the network, so it is safe to run at any time. The live suite is gated behind `LITELLM_LIVE=1`, uses `claude-haiku-4-5` with low token caps, and asserts its own total spend stays under $0.50.
+
+After changing `compat.js`, `base.js` or any class constructor, run both drop-in proof scripts. They throw on the first missing field.
+
+```bash
+node scratch-dropin-claude.mjs
+node scratch-dropin-gemini.mjs
+```
+
+Jest needs the ESM flags. `npm test` already has them. To run a single file:
+
+```bash
+node --no-warnings --experimental-vm-modules node_modules/jest/bin/jest.js tests/unit/compat.test.js
+```
+
+[GUIDE.md](GUIDE.md) explains the design decisions. [CLAUDE.md](CLAUDE.md) is the working brief for AI coding agents.
+
+**Never commit `.env`.** It holds a live gateway key with a real budget. It is gitignored, and the unit harness sets its own fake key.
 
 ---
 
 ## License
 
-ISC.
+[ISC](LICENSE).

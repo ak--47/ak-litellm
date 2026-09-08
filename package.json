@@ -24,9 +24,16 @@
 		"types.d.ts",
 		"GUIDE.md",
 		"CHANGELOG.md",
+		"LICENSE",
 		".env.example"
 	],
 	"types": "types.d.ts",
+	"bin": {
+		"ak-litellm": "cli.js"
+	},
+	"engines": {
+		"node": ">=22"
+	},
 	"exports": {
 		".": {
 			"import": {

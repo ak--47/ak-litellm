@@ -40,7 +40,7 @@ console.log('Chat');
 		// ak-claude-only options. They are accepted, warned about once, and ignored.
 		cacheSystemPrompt: true,
 		vertexai: true,
-		vertexProjectId: 'mixpanel-gtm-training',
+		vertexProjectId: 'my-gcp-project',
 		vertexRegion: 'global',
 		logLevel: 'error'
 	});

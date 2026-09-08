@@ -45,7 +45,7 @@ console.log('Chat');
 		resourceExhaustedDelay: 500,
 		// ak-gemini-only options. Accepted, warned about once, ignored.
 		vertexai: true,
-		project: 'mixpanel-gtm-training',
+		project: 'my-gcp-project',
 		location: 'us-central1',
 		safetySettings: [{ category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' }],
 		logLevel: 'error'

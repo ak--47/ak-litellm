@@ -6,14 +6,14 @@ The long-form companion to [`README.md`](README.md). Read the README first for t
 
 ## 1. What this package is
 
-`ak-litellm` is the fourth wrapper in the `ak-ai-wrappers` workspace. The other three each wrap one vendor SDK:
+`ak-litellm` is the fourth wrapper in a family. The other three each wrap one vendor SDK:
 
 | Package | Wraps | Talks to |
 |---|---|---|
-| `ak-claude` | `@anthropic-ai/sdk` | Anthropic direct, or Vertex AI |
-| `ak-gemini` | `@google/genai` | Gemini API, or Vertex AI |
+| [`ak-claude`](https://github.com/ak--47/ak-claude) | `@anthropic-ai/sdk` | Anthropic direct, or Vertex AI |
+| [`ak-gemini`](https://github.com/ak--47/ak-gemini) | `@google/genai` | Gemini API, or Vertex AI |
 | `ak-gpt` | `openai` | OpenAI |
-| **`ak-litellm`** | `openai`, pointed elsewhere | **Mixpanel's LiteLLM gateway** |
+| **`ak-litellm`** | `openai`, pointed elsewhere | **a LiteLLM gateway** |
 
 The gateway is a single HTTP endpoint that fans out to Anthropic, Google, OpenAI, DeepSeek, Zhipu, Moonshot and Alibaba behind one bearer key. You get one key, one bill, one place to see spend, and models from every vendor in one namespace.
 
@@ -420,7 +420,7 @@ It exists to catch gateway drift. Every claim in section 5 has a test.
 
 ### Do not run the siblings' suites
 
-`ak-claude`, `ak-gemini` and `ak-gpt` make real, paid API calls in their tests. Verify workspace-wide changes with `npm run typecheck:litellm` and `npm run build:litellm`.
+This only applies inside the private `ak-ai-wrappers` workspace. `ak-claude`, `ak-gemini` and `ak-gpt` make real, paid API calls in their tests. Verify workspace-wide changes with `npm run typecheck:litellm` and `npm run build:litellm` instead.
 
 ### Jest and ESM
 
@@ -467,4 +467,5 @@ Nothing stops you importing `ak-claude` and `ak-litellm` in the same process. Th
 - [`types.d.ts`](types.d.ts) — the full typed surface
 - [`README.md`](README.md) — API overview
 - [`CHANGELOG.md`](CHANGELOG.md) — version history
-- `docs/superpowers/specs/2026-09-08-ak-litellm-design.md` in the workspace — the design spec, including the raw live-probe results this package is built on
+- [`ak-claude`](https://github.com/ak--47/ak-claude) and [`ak-gemini`](https://github.com/ak--47/ak-gemini) — the sibling packages this one is a drop-in for
+- `docs/superpowers/specs/2026-09-08-ak-litellm-design.md` — the design spec, including the raw live-probe results this package is built on. It lives in the private `ak-ai-wrappers` workspace and does not ship here.
