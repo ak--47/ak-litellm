@@ -33,6 +33,11 @@ __export(index_exports, {
   BaseClaude: () => base_default,
   BaseGemini: () => base_default,
   BaseLiteLLM: () => base_default,
+  BatchTransformer: () => BatchTransformer,
+  CACHE_CAPABLE_MODELS: () => CACHE_CAPABLE_MODELS,
+  CACHE_MIN_TOKENS: () => CACHE_MIN_TOKENS,
+  CACHE_READ_MULTIPLIER: () => CACHE_READ_MULTIPLIER,
+  CACHE_WRITE_MULTIPLIER: () => CACHE_WRITE_MULTIPLIER,
   Chat: () => chat_default,
   CodeAgent: () => code_agent_default,
   DEFAULT_MODEL: () => DEFAULT_MODEL,
@@ -46,26 +51,41 @@ __export(index_exports, {
   MODEL_PRICING: () => MODEL_PRICING,
   MODEL_PRICING_AS_OF: () => MODEL_PRICING_AS_OF,
   Message: () => message_default,
+  PREFILL_MODES: () => PREFILL_MODES,
   RagAgent: () => rag_agent_default,
   ThinkingLevel: () => ThinkingLevel,
   ToolAgent: () => tool_agent_default,
   Transformer: () => transformer_default,
+  WEB_SEARCH_MIN_MAX_TOKENS: () => WEB_SEARCH_MIN_MAX_TOKENS,
   attemptJSONRecovery: () => attemptJSONRecovery,
   budgetTokensToEffort: () => budgetTokensToEffort,
   computeCost: () => computeCost,
+  contextWindow: () => contextWindow,
   default: () => index_default,
   extractJSON: () => extractJSON,
+  fromResponsesReply: () => fromResponsesReply,
+  getCapabilities: () => getCapabilities,
   getModelInfo: () => getModelInfo,
   isJSON: () => isJSON,
   isJSONStr: () => isJSONStr,
   listModels: () => listModels,
   log: () => logger_default,
   modelProvider: () => modelProvider,
+  needsResponsesTransport: () => needsResponsesTransport,
   normalizeOptions: () => normalizeOptions,
+  prefillMode: () => prefillMode,
   refreshModelInfo: () => refreshModelInfo,
   resolvePricing: () => resolvePricing,
   samplingSupport: () => samplingSupport,
-  validateSchema: () => validateSchema
+  supportsPdf: () => supportsPdf,
+  supportsPrefill: () => supportsPrefill,
+  supportsPromptCaching: () => supportsPromptCaching,
+  supportsReasoning: () => supportsReasoning,
+  supportsTools: () => supportsTools,
+  supportsVision: () => supportsVision,
+  toResponsesRequest: () => toResponsesRequest,
+  validateSchema: () => validateSchema,
+  webSearchStyle: () => webSearchStyle
 });
 module.exports = __toCommonJS(index_exports);
 
@@ -94,7 +114,7 @@ var logger = (0, import_pino.default)({
 var logger_default = logger;
 
 // models.js
-var MODEL_PRICING_AS_OF = "2026-09-08";
+var MODEL_PRICING_AS_OF = "2026-09-11";
 var MODEL_PRICING = {
   "advisor": { "input": 10, "output": 50, "cachedInput": 0.25 },
   "executor": { "input": 2, "output": 10, "cachedInput": 0.2 },
@@ -113,33 +133,29 @@ var MODEL_PRICING = {
   "glm-5.3": { "input": 1.4, "output": 4.4, "cachedInput": 0.26 },
   "glm-5.3-flash": { "input": 0.15, "output": 0.5, "cachedInput": 0.03 },
   "kimi-k3": { "input": 3, "output": 15, "cachedInput": 0.3 },
-  "deepseek-v4-pro": { "input": 1.32, "output": 3.96, "cachedInput": 0.044 },
-  "deepseek-v4-flash": { "input": 0.22, "output": 0.66, "cachedInput": 7e-3 },
-  "qwen3.8-max": { "input": 2, "output": 6, "cachedInput": 0.25 },
+  "deepseek-v4.1-flash": { "input": 0.22, "output": 0.66, "cachedInput": 7e-3 },
   "glm-fast-latest": { "input": 2.1, "output": 6.6, "cachedInput": 0.21 }
 };
 var MODEL_INFO = {
-  "advisor": { "maxInputTokens": 1e6, "maxOutputTokens": 128e3, "mode": "chat", "upstreamModel": "vertex_ai/claude-fable-5-1", "directAccess": false, "teamIds": ["sales"], "lifecycle": "integration", "traits": ["advisor"], "guidance": "Stable model name for the Pi Advisor integration; not intended for interactive selection.", "spotlight": false, "supportsReasoning": true, "supportsVision": true, "supportsFunctionCalling": true },
-  "executor": { "maxInputTokens": 1e6, "maxOutputTokens": 128e3, "mode": "chat", "upstreamModel": "vertex_ai/claude-sonnet-5", "directAccess": false, "teamIds": ["sales"], "lifecycle": "integration", "traits": ["executor"], "guidance": "Stable model name for the Pi Advisor executor; not intended for interactive selection.", "spotlight": false, "supportsReasoning": true, "supportsVision": true, "supportsFunctionCalling": true },
-  "claude-opus-5": { "maxInputTokens": 1e6, "maxOutputTokens": 128e3, "mode": "chat", "upstreamModel": "vertex_ai/claude-opus-5", "directAccess": false, "teamIds": ["sales"], "lifecycle": "current", "traits": ["advisor", "design"], "guidance": "Use for difficult architecture, design, and review work where quality matters more than cost.", "spotlight": false, "supportsReasoning": true, "supportsVision": true, "supportsFunctionCalling": true },
-  "claude-sonnet-5": { "maxInputTokens": 1e6, "maxOutputTokens": 128e3, "mode": "chat", "upstreamModel": "vertex_ai/claude-sonnet-5", "directAccess": false, "teamIds": ["sales"], "lifecycle": "current", "traits": ["daily-driver"], "guidance": "Recommended default for routine engineering work.", "spotlight": false, "supportsReasoning": true, "supportsVision": true, "supportsFunctionCalling": true },
-  "claude-opus-4-7": { "maxInputTokens": 1e6, "maxOutputTokens": 128e3, "mode": "chat", "upstreamModel": "vertex_ai/claude-opus-4-7", "directAccess": false, "teamIds": ["sales"], "lifecycle": "legacy", "traits": ["advisor", "design"], "guidance": "Previous-generation reasoning model; prefer Claude Opus 5 for new work.", "spotlight": false, "supportsReasoning": true, "supportsVision": true, "supportsFunctionCalling": true },
-  "claude-haiku-4-5": { "maxInputTokens": 2e5, "maxOutputTokens": 8192, "mode": "chat", "upstreamModel": "vertex_ai/claude-haiku-4-5", "directAccess": false, "teamIds": ["sales"], "lifecycle": "legacy", "traits": [], "guidance": "Previous-generation low-cost model; compare with current fast models before choosing it.", "spotlight": false, "supportsReasoning": true, "supportsVision": true, "supportsFunctionCalling": true },
-  "claude-fable-5-1": { "maxInputTokens": 1e6, "maxOutputTokens": 128e3, "mode": "chat", "upstreamModel": "vertex_ai/claude-fable-5-1", "directAccess": false, "teamIds": ["sales"], "lifecycle": "current", "traits": [], "guidance": "Highest-cost Claude route; use only when its additional capability is worth the price.", "spotlight": false, "supportsReasoning": true, "supportsVision": true, "supportsFunctionCalling": true },
-  "claude-fable-5": { "maxInputTokens": 1e6, "maxOutputTokens": 128e3, "mode": "chat", "upstreamModel": "vertex_ai/claude-fable-5-1", "directAccess": false, "teamIds": ["sales"], "lifecycle": "current", "traits": [], "guidance": "Compatibility alias for Claude Fable 5.1.", "spotlight": false, "supportsReasoning": true, "supportsVision": true, "supportsFunctionCalling": true },
-  "gemini-3.8-flash": { "maxInputTokens": 1048576, "maxOutputTokens": 65536, "mode": "chat", "upstreamModel": "vertex_ai/gemini-3.8-flash", "directAccess": false, "teamIds": ["sales"], "lifecycle": "current", "traits": [], "guidance": "Current low-cost option for quick iteration.", "spotlight": true, "supportsReasoning": true, "supportsVision": true, "supportsFunctionCalling": true },
-  "gpt-5.5": { "maxInputTokens": 105e4, "maxOutputTokens": 128e3, "mode": "chat", "upstreamModel": "openai/gpt-5.5", "directAccess": false, "teamIds": ["sales"], "lifecycle": "legacy", "traits": [], "guidance": "Previous generation; prefer a GPT 5.6 tier for new work.", "spotlight": false, "supportsReasoning": true, "supportsVision": true, "supportsFunctionCalling": true },
-  "gpt-5.6-sol": { "maxInputTokens": 922e3, "maxOutputTokens": 128e3, "mode": "chat", "upstreamModel": "openai/gpt-5.6-sol", "directAccess": false, "teamIds": ["sales"], "lifecycle": "current", "traits": ["advisor", "design"], "guidance": "Flagship GPT tier for difficult design and reasoning work.", "spotlight": false, "supportsReasoning": true, "supportsVision": true, "supportsFunctionCalling": true },
-  "gpt-5.6-terra": { "maxInputTokens": 922e3, "maxOutputTokens": 128e3, "mode": "chat", "upstreamModel": "openai/gpt-5.6-terra", "directAccess": false, "teamIds": ["sales"], "lifecycle": "current", "traits": ["daily-driver"], "guidance": "Balanced GPT tier for routine engineering work.", "spotlight": false, "supportsReasoning": true, "supportsVision": true, "supportsFunctionCalling": true },
-  "gpt-5.6-luna": { "maxInputTokens": 922e3, "maxOutputTokens": 128e3, "mode": "chat", "upstreamModel": "openai/gpt-5.6-luna", "directAccess": false, "teamIds": ["sales"], "lifecycle": "current", "traits": [], "guidance": "Lowest-cost GPT tier for quick iteration and lightweight tasks.", "spotlight": true, "supportsReasoning": true, "supportsVision": true, "supportsFunctionCalling": true },
-  "gpt-6-astra": { "maxInputTokens": 922e3, "maxOutputTokens": 128e3, "mode": "chat", "upstreamModel": "openai/responses/gpt-6-astra", "directAccess": false, "teamIds": ["sales"], "lifecycle": "current", "traits": ["advisor", "design"], "guidance": "Highest-cost GPT route for the hardest end-to-end reasoning, coding, and agentic work; prefer a GPT 5.6 tier when its capability is not needed.", "spotlight": false, "supportsReasoning": true, "supportsVision": true, "supportsFunctionCalling": true },
-  "glm-5.3": { "maxInputTokens": 1048576, "maxOutputTokens": 128e3, "mode": "chat", "upstreamModel": "fireworks_ai/accounts/fireworks/models/glm-5p3", "directAccess": false, "teamIds": ["sales"], "lifecycle": "current", "traits": [], "guidance": "Strong coding and long-horizon candidate with function calling and a million-token context window.", "spotlight": false, "supportsReasoning": true, "supportsVision": false, "supportsFunctionCalling": true },
-  "glm-5.3-flash": { "maxInputTokens": 1048576, "maxOutputTokens": null, "mode": "chat", "upstreamModel": "fireworks_ai/accounts/fireworks/models/glm-5p3-flash", "directAccess": false, "teamIds": ["sales"], "lifecycle": "current", "traits": ["multimodal"], "guidance": "Fast, lower-cost GLM 5.3 variant for routine coding, subagents, and quick iteration.", "spotlight": false, "supportsReasoning": null, "supportsVision": true, "supportsFunctionCalling": true },
-  "kimi-k3": { "maxInputTokens": 1048576, "maxOutputTokens": 131072, "mode": "chat", "upstreamModel": "fireworks_ai/accounts/fireworks/models/kimi-k3", "directAccess": false, "teamIds": ["sales"], "lifecycle": "current", "traits": ["multimodal"], "guidance": "Flagship multimodal reasoning candidate with function calling and a million-token context window.", "spotlight": false, "supportsReasoning": true, "supportsVision": true, "supportsFunctionCalling": true },
-  "deepseek-v4-pro": { "maxInputTokens": 1048576, "maxOutputTokens": 131072, "mode": "chat", "upstreamModel": "fireworks_ai/accounts/fireworks/models/deepseek-v4-pro-0813", "directAccess": false, "teamIds": ["sales"], "lifecycle": "current", "traits": [], "guidance": "Pro-tier candidate for difficult text-only coding and reasoning work.", "spotlight": false, "supportsReasoning": true, "supportsVision": false, "supportsFunctionCalling": true },
-  "deepseek-v4-flash": { "maxInputTokens": 1048576, "maxOutputTokens": 131072, "mode": "chat", "upstreamModel": "fireworks_ai/accounts/fireworks/models/deepseek-v4-flash-0731", "directAccess": false, "teamIds": ["sales"], "lifecycle": "current", "traits": [], "guidance": "Fast, low-cost option for routine coding, subagents, and quick iteration.", "spotlight": false, "supportsReasoning": true, "supportsVision": false, "supportsFunctionCalling": true },
-  "qwen3.8-max": { "maxInputTokens": 262144, "maxOutputTokens": null, "mode": "chat", "upstreamModel": "fireworks_ai/accounts/fireworks/models/qwen3p8-max", "directAccess": false, "teamIds": ["sales"], "lifecycle": "current", "traits": [], "guidance": "Large reasoning candidate for complex text-only work.", "spotlight": false, "supportsReasoning": true, "supportsVision": true, "supportsFunctionCalling": true },
-  "glm-fast-latest": { "maxInputTokens": 1048576, "maxOutputTokens": 131072, "mode": "chat", "upstreamModel": "fireworks_ai/routers/glm-fast-latest", "directAccess": false, "teamIds": ["sales"], "lifecycle": "current", "traits": [], "guidance": "Rolling fast GLM route for text-only agent loops.", "spotlight": false, "supportsReasoning": true, "supportsVision": false, "supportsFunctionCalling": true }
+  "advisor": { "maxInputTokens": 1e6, "maxOutputTokens": 128e3, "mode": "chat", "upstreamModel": "vertex_ai/claude-fable-5-1", "directAccess": true, "teamIds": ["sales"], "lifecycle": "integration", "traits": ["advisor"], "guidance": "Stable model name for the Pi Advisor integration; not intended for interactive selection.", "spotlight": false, "supportsReasoning": true, "supportsVision": true, "supportsFunctionCalling": true, "supportsPdfInput": true, "supportsToolChoice": true, "supportsParallelFunctionCalling": null, "supportsResponseSchema": true, "supportsAudioInput": null, "supportsUrlContext": null, "supportsComputerUse": true, "supportsAssistantPrefill": false, "thinkingAlwaysOn": true, "gatewaySaysSupportsWebSearch": null, "gatewaySaysSupportsPromptCaching": true },
+  "executor": { "maxInputTokens": 1e6, "maxOutputTokens": 128e3, "mode": "chat", "upstreamModel": "vertex_ai/claude-sonnet-5", "directAccess": true, "teamIds": ["sales"], "lifecycle": "integration", "traits": ["executor"], "guidance": "Stable model name for the Pi Advisor executor; not intended for interactive selection.", "spotlight": false, "supportsReasoning": true, "supportsVision": true, "supportsFunctionCalling": true, "supportsPdfInput": true, "supportsToolChoice": true, "supportsParallelFunctionCalling": null, "supportsResponseSchema": true, "supportsAudioInput": null, "supportsUrlContext": null, "supportsComputerUse": true, "supportsAssistantPrefill": false, "thinkingAlwaysOn": null, "gatewaySaysSupportsWebSearch": null, "gatewaySaysSupportsPromptCaching": true },
+  "claude-opus-5": { "maxInputTokens": 1e6, "maxOutputTokens": 128e3, "mode": "chat", "upstreamModel": "vertex_ai/claude-opus-5", "directAccess": true, "teamIds": ["sales"], "lifecycle": "current", "traits": ["advisor", "design"], "guidance": "Use for difficult architecture, design, and review work where quality matters more than cost.", "spotlight": false, "supportsReasoning": true, "supportsVision": true, "supportsFunctionCalling": true, "supportsPdfInput": true, "supportsToolChoice": true, "supportsParallelFunctionCalling": null, "supportsResponseSchema": true, "supportsAudioInput": null, "supportsUrlContext": null, "supportsComputerUse": true, "supportsAssistantPrefill": false, "thinkingAlwaysOn": null, "gatewaySaysSupportsWebSearch": null, "gatewaySaysSupportsPromptCaching": true },
+  "claude-sonnet-5": { "maxInputTokens": 1e6, "maxOutputTokens": 128e3, "mode": "chat", "upstreamModel": "vertex_ai/claude-sonnet-5", "directAccess": true, "teamIds": ["sales"], "lifecycle": "current", "traits": ["daily-driver"], "guidance": "Recommended default for routine engineering work.", "spotlight": false, "supportsReasoning": true, "supportsVision": true, "supportsFunctionCalling": true, "supportsPdfInput": true, "supportsToolChoice": true, "supportsParallelFunctionCalling": null, "supportsResponseSchema": true, "supportsAudioInput": null, "supportsUrlContext": null, "supportsComputerUse": true, "supportsAssistantPrefill": false, "thinkingAlwaysOn": null, "gatewaySaysSupportsWebSearch": null, "gatewaySaysSupportsPromptCaching": true },
+  "claude-opus-4-7": { "maxInputTokens": 1e6, "maxOutputTokens": 128e3, "mode": "chat", "upstreamModel": "vertex_ai/claude-opus-4-7", "directAccess": true, "teamIds": ["sales"], "lifecycle": "legacy", "traits": ["advisor", "design"], "guidance": "Previous-generation reasoning model; prefer Claude Opus 5 for new work.", "spotlight": false, "supportsReasoning": true, "supportsVision": true, "supportsFunctionCalling": true, "supportsPdfInput": true, "supportsToolChoice": true, "supportsParallelFunctionCalling": null, "supportsResponseSchema": true, "supportsAudioInput": null, "supportsUrlContext": null, "supportsComputerUse": true, "supportsAssistantPrefill": false, "thinkingAlwaysOn": null, "gatewaySaysSupportsWebSearch": null, "gatewaySaysSupportsPromptCaching": true },
+  "claude-haiku-4-5": { "maxInputTokens": 2e5, "maxOutputTokens": 64e3, "mode": "chat", "upstreamModel": "vertex_ai/claude-haiku-4-5", "directAccess": true, "teamIds": ["sales"], "lifecycle": "legacy", "traits": [], "guidance": "Previous-generation low-cost model; compare with current fast models before choosing it.", "spotlight": false, "supportsReasoning": true, "supportsVision": true, "supportsFunctionCalling": true, "supportsPdfInput": true, "supportsToolChoice": true, "supportsParallelFunctionCalling": null, "supportsResponseSchema": true, "supportsAudioInput": null, "supportsUrlContext": null, "supportsComputerUse": null, "supportsAssistantPrefill": true, "thinkingAlwaysOn": null, "gatewaySaysSupportsWebSearch": null, "gatewaySaysSupportsPromptCaching": true },
+  "claude-fable-5-1": { "maxInputTokens": 1e6, "maxOutputTokens": 128e3, "mode": "chat", "upstreamModel": "vertex_ai/claude-fable-5-1", "directAccess": true, "teamIds": ["sales"], "lifecycle": "current", "traits": [], "guidance": "Highest-cost Claude route; use only when its additional capability is worth the price.", "spotlight": false, "supportsReasoning": true, "supportsVision": true, "supportsFunctionCalling": true, "supportsPdfInput": true, "supportsToolChoice": true, "supportsParallelFunctionCalling": null, "supportsResponseSchema": true, "supportsAudioInput": null, "supportsUrlContext": null, "supportsComputerUse": true, "supportsAssistantPrefill": false, "thinkingAlwaysOn": true, "gatewaySaysSupportsWebSearch": null, "gatewaySaysSupportsPromptCaching": true },
+  "claude-fable-5": { "maxInputTokens": 1e6, "maxOutputTokens": 128e3, "mode": "chat", "upstreamModel": "vertex_ai/claude-fable-5-1", "directAccess": true, "teamIds": ["sales"], "lifecycle": "current", "traits": [], "guidance": "Compatibility alias for Claude Fable 5.1.", "spotlight": false, "supportsReasoning": true, "supportsVision": true, "supportsFunctionCalling": true, "supportsPdfInput": true, "supportsToolChoice": true, "supportsParallelFunctionCalling": null, "supportsResponseSchema": true, "supportsAudioInput": null, "supportsUrlContext": null, "supportsComputerUse": true, "supportsAssistantPrefill": false, "thinkingAlwaysOn": true, "gatewaySaysSupportsWebSearch": null, "gatewaySaysSupportsPromptCaching": true },
+  "gemini-3.8-flash": { "maxInputTokens": 1048576, "maxOutputTokens": 65536, "mode": "chat", "upstreamModel": "vertex_ai/gemini-3.8-flash", "directAccess": true, "teamIds": ["sales"], "lifecycle": "current", "traits": [], "guidance": "Current low-cost option for quick iteration.", "spotlight": true, "supportsReasoning": true, "supportsVision": true, "supportsFunctionCalling": true, "supportsPdfInput": true, "supportsToolChoice": true, "supportsParallelFunctionCalling": true, "supportsResponseSchema": true, "supportsAudioInput": true, "supportsUrlContext": true, "supportsComputerUse": null, "supportsAssistantPrefill": null, "thinkingAlwaysOn": null, "gatewaySaysSupportsWebSearch": true, "gatewaySaysSupportsPromptCaching": true },
+  "gpt-5.5": { "maxInputTokens": 105e4, "maxOutputTokens": 128e3, "mode": "chat", "upstreamModel": "openai/gpt-5.5", "directAccess": true, "teamIds": ["sales"], "lifecycle": "legacy", "traits": [], "guidance": "Previous generation; prefer a GPT 5.6 tier for new work.", "spotlight": false, "supportsReasoning": true, "supportsVision": true, "supportsFunctionCalling": true, "supportsPdfInput": true, "supportsToolChoice": true, "supportsParallelFunctionCalling": true, "supportsResponseSchema": true, "supportsAudioInput": null, "supportsUrlContext": null, "supportsComputerUse": null, "supportsAssistantPrefill": null, "thinkingAlwaysOn": null, "gatewaySaysSupportsWebSearch": true, "gatewaySaysSupportsPromptCaching": true },
+  "gpt-5.6-sol": { "maxInputTokens": 922e3, "maxOutputTokens": 128e3, "mode": "chat", "upstreamModel": "openai/gpt-5.6-sol", "directAccess": true, "teamIds": ["sales"], "lifecycle": "current", "traits": ["advisor", "design"], "guidance": "Flagship GPT tier for difficult design and reasoning work.", "spotlight": false, "supportsReasoning": true, "supportsVision": true, "supportsFunctionCalling": true, "supportsPdfInput": true, "supportsToolChoice": true, "supportsParallelFunctionCalling": true, "supportsResponseSchema": true, "supportsAudioInput": null, "supportsUrlContext": null, "supportsComputerUse": true, "supportsAssistantPrefill": null, "thinkingAlwaysOn": null, "gatewaySaysSupportsWebSearch": true, "gatewaySaysSupportsPromptCaching": true },
+  "gpt-5.6-terra": { "maxInputTokens": 922e3, "maxOutputTokens": 128e3, "mode": "chat", "upstreamModel": "openai/gpt-5.6-terra", "directAccess": true, "teamIds": ["sales"], "lifecycle": "current", "traits": ["daily-driver"], "guidance": "Balanced GPT tier for routine engineering work.", "spotlight": false, "supportsReasoning": true, "supportsVision": true, "supportsFunctionCalling": true, "supportsPdfInput": true, "supportsToolChoice": true, "supportsParallelFunctionCalling": true, "supportsResponseSchema": true, "supportsAudioInput": null, "supportsUrlContext": null, "supportsComputerUse": null, "supportsAssistantPrefill": null, "thinkingAlwaysOn": null, "gatewaySaysSupportsWebSearch": true, "gatewaySaysSupportsPromptCaching": true },
+  "gpt-5.6-luna": { "maxInputTokens": 922e3, "maxOutputTokens": 128e3, "mode": "chat", "upstreamModel": "openai/gpt-5.6-luna", "directAccess": true, "teamIds": ["sales"], "lifecycle": "current", "traits": [], "guidance": "Lowest-cost GPT tier for quick iteration and lightweight tasks.", "spotlight": true, "supportsReasoning": true, "supportsVision": true, "supportsFunctionCalling": true, "supportsPdfInput": true, "supportsToolChoice": true, "supportsParallelFunctionCalling": true, "supportsResponseSchema": true, "supportsAudioInput": null, "supportsUrlContext": null, "supportsComputerUse": null, "supportsAssistantPrefill": null, "thinkingAlwaysOn": null, "gatewaySaysSupportsWebSearch": true, "gatewaySaysSupportsPromptCaching": true },
+  "gpt-6-astra": { "maxInputTokens": 922e3, "maxOutputTokens": 128e3, "mode": "chat", "upstreamModel": "openai/gpt-6-astra", "directAccess": true, "teamIds": ["sales"], "lifecycle": "current", "traits": ["advisor", "design"], "guidance": "Highest-cost GPT route for the hardest end-to-end reasoning, coding, and agentic work; prefer a GPT 5.6 tier when its capability is not needed.", "spotlight": false, "supportsReasoning": true, "supportsVision": true, "supportsFunctionCalling": true, "supportsPdfInput": true, "supportsToolChoice": true, "supportsParallelFunctionCalling": true, "supportsResponseSchema": true, "supportsAudioInput": null, "supportsUrlContext": null, "supportsComputerUse": true, "supportsAssistantPrefill": null, "thinkingAlwaysOn": null, "gatewaySaysSupportsWebSearch": true, "gatewaySaysSupportsPromptCaching": true },
+  "glm-5.3": { "maxInputTokens": 1048576, "maxOutputTokens": 128e3, "mode": "chat", "upstreamModel": "fireworks_ai/accounts/fireworks/models/glm-5p3", "directAccess": true, "teamIds": ["sales"], "lifecycle": "current", "traits": [], "guidance": "Strong coding and long-horizon candidate with function calling and a million-token context window.", "spotlight": false, "supportsReasoning": true, "supportsVision": false, "supportsFunctionCalling": true, "supportsPdfInput": null, "supportsToolChoice": true, "supportsParallelFunctionCalling": null, "supportsResponseSchema": true, "supportsAudioInput": null, "supportsUrlContext": null, "supportsComputerUse": null, "supportsAssistantPrefill": null, "thinkingAlwaysOn": null, "gatewaySaysSupportsWebSearch": null, "gatewaySaysSupportsPromptCaching": null },
+  "glm-5.3-flash": { "maxInputTokens": 1048576, "maxOutputTokens": null, "mode": "chat", "upstreamModel": "fireworks_ai/accounts/fireworks/models/glm-5p3-flash", "directAccess": true, "teamIds": ["sales"], "lifecycle": "current", "traits": ["multimodal"], "guidance": "Fast, lower-cost GLM 5.3 variant for routine coding, subagents, and quick iteration.", "spotlight": false, "supportsReasoning": null, "supportsVision": true, "supportsFunctionCalling": true, "supportsPdfInput": null, "supportsToolChoice": true, "supportsParallelFunctionCalling": null, "supportsResponseSchema": true, "supportsAudioInput": null, "supportsUrlContext": null, "supportsComputerUse": null, "supportsAssistantPrefill": null, "thinkingAlwaysOn": null, "gatewaySaysSupportsWebSearch": null, "gatewaySaysSupportsPromptCaching": null },
+  "kimi-k3": { "maxInputTokens": 1048576, "maxOutputTokens": 131072, "mode": "chat", "upstreamModel": "fireworks_ai/accounts/fireworks/models/kimi-k3", "directAccess": true, "teamIds": ["sales"], "lifecycle": "current", "traits": ["multimodal"], "guidance": "Flagship multimodal reasoning candidate with function calling and a million-token context window.", "spotlight": false, "supportsReasoning": true, "supportsVision": true, "supportsFunctionCalling": true, "supportsPdfInput": null, "supportsToolChoice": true, "supportsParallelFunctionCalling": null, "supportsResponseSchema": true, "supportsAudioInput": null, "supportsUrlContext": null, "supportsComputerUse": null, "supportsAssistantPrefill": null, "thinkingAlwaysOn": null, "gatewaySaysSupportsWebSearch": null, "gatewaySaysSupportsPromptCaching": null },
+  "deepseek-v4.1-flash": { "maxInputTokens": 1048576, "maxOutputTokens": 131072, "mode": "chat", "upstreamModel": "fireworks_ai/accounts/fireworks/models/deepseek-v4p1-flash", "directAccess": true, "teamIds": ["sales"], "lifecycle": "current", "traits": [], "guidance": "Fast, low-cost option for routine coding, subagents, and quick iteration.", "spotlight": false, "supportsReasoning": true, "supportsVision": true, "supportsFunctionCalling": true, "supportsPdfInput": null, "supportsToolChoice": true, "supportsParallelFunctionCalling": null, "supportsResponseSchema": true, "supportsAudioInput": null, "supportsUrlContext": null, "supportsComputerUse": null, "supportsAssistantPrefill": null, "thinkingAlwaysOn": null, "gatewaySaysSupportsWebSearch": null, "gatewaySaysSupportsPromptCaching": null },
+  "glm-fast-latest": { "maxInputTokens": 1048576, "maxOutputTokens": 128e3, "mode": "chat", "upstreamModel": "fireworks_ai/routers/glm-fast-latest", "directAccess": true, "teamIds": ["sales"], "lifecycle": "current", "traits": [], "guidance": "Rolling fast GLM route for text-only agent loops.", "spotlight": false, "supportsReasoning": true, "supportsVision": false, "supportsFunctionCalling": true, "supportsPdfInput": null, "supportsToolChoice": true, "supportsParallelFunctionCalling": null, "supportsResponseSchema": true, "supportsAudioInput": null, "supportsUrlContext": null, "supportsComputerUse": null, "supportsAssistantPrefill": null, "thinkingAlwaysOn": null, "gatewaySaysSupportsWebSearch": null, "gatewaySaysSupportsPromptCaching": null }
 };
 var MODEL_ALIASES = {
   // ak-gemini defaults, current and historical
@@ -152,7 +168,12 @@ var MODEL_ALIASES = {
   "claude-opus-4-5": "claude-opus-5",
   "claude-haiku-3-5": "claude-haiku-4-5",
   // ak-gpt
-  "gpt-5": "gpt-5.5"
+  "gpt-5": "gpt-5.5",
+  // Gateway roster drift, observed 2026-09-11. `deepseek-v4-pro` and
+  // `qwen3.8-max` were withdrawn with no successor, so they are deliberately
+  // absent — they raise "the gateway does not serve model" instead of routing
+  // somewhere the caller did not ask for.
+  "deepseek-v4-flash": "deepseek-v4.1-flash"
 };
 var EFFORT_LEVELS = (
   /** @type {const} */
@@ -160,6 +181,8 @@ var EFFORT_LEVELS = (
 );
 var DEFAULT_MODEL = "claude-sonnet-5";
 var CHARS_PER_TOKEN = 4;
+var CACHE_WRITE_MULTIPLIER = Object.freeze({ "5m": 1.25, "1h": 2 });
+var CACHE_READ_MULTIPLIER = 0.1;
 function canonicalModelId(modelId) {
   if (!modelId) return null;
   return MODEL_ALIASES[modelId] || modelId;
@@ -185,6 +208,9 @@ function computeCost(usageOrModelId, modelIdOrPromptTokens, optsOrResponseTokens
   let responseTokens = 0;
   let thoughtsTokens = 0;
   let opts = {};
+  let cacheReadTokens = 0;
+  let cacheCreationTokens = 0;
+  let cacheTtl = "5m";
   if (usageOrModelId && typeof usageOrModelId === "object") {
     const usage = usageOrModelId;
     modelId = /** @type {string} */
@@ -192,21 +218,31 @@ function computeCost(usageOrModelId, modelIdOrPromptTokens, optsOrResponseTokens
     promptTokens = usage.promptTokens || 0;
     responseTokens = usage.responseTokens || 0;
     thoughtsTokens = usage.thoughtsTokens || 0;
+    cacheReadTokens = usage.cacheReadTokens || usage.cachedTokens || 0;
+    cacheCreationTokens = usage.cacheCreationTokens || 0;
     opts = /** @type {any} */
     optsOrResponseTokens || {};
+    if (opts.cacheTtl) cacheTtl = opts.cacheTtl;
   } else {
     modelId = /** @type {string | null} */
     usageOrModelId ?? null;
     promptTokens = Number(modelIdOrPromptTokens) || 0;
     responseTokens = Number(optsOrResponseTokens) || 0;
     thoughtsTokens = Number(extraA) || 0;
+    cacheReadTokens = Number(extraB) || 0;
     opts = legacyOpts || {};
+    if (opts.cacheTtl) cacheTtl = opts.cacheTtl;
   }
   const pricing = resolvePricing(modelId, opts);
   if (!pricing) return null;
-  const inputCost = promptTokens / 1e6 * pricing.input;
+  const billableInput = Math.max(0, promptTokens - cacheReadTokens - cacheCreationTokens);
+  const readRate = pricing.cachedInput ?? pricing.input * CACHE_READ_MULTIPLIER;
+  const writeRate = pricing.input * (CACHE_WRITE_MULTIPLIER[cacheTtl] ?? CACHE_WRITE_MULTIPLIER["5m"]);
+  const inputCost = billableInput / 1e6 * pricing.input;
+  const readCost = cacheReadTokens / 1e6 * readRate;
+  const writeCost = cacheCreationTokens / 1e6 * writeRate;
   const outputCost = (responseTokens + thoughtsTokens) / 1e6 * pricing.output;
-  return inputCost + outputCost;
+  return inputCost + readCost + writeCost + outputCost;
 }
 function listModels(opts = {}) {
   const ids = Object.keys(MODEL_INFO);
@@ -263,7 +299,21 @@ function buildTablesFromModelInfo(body) {
       spotlight: mi.mixpanel?.spotlight ?? false,
       supportsReasoning: mi.supports_reasoning ?? null,
       supportsVision: mi.supports_vision ?? null,
-      supportsFunctionCalling: mi.supports_function_calling ?? null
+      supportsFunctionCalling: mi.supports_function_calling ?? null,
+      supportsPdfInput: mi.supports_pdf_input ?? null,
+      supportsToolChoice: mi.supports_tool_choice ?? null,
+      supportsParallelFunctionCalling: mi.supports_parallel_function_calling ?? null,
+      supportsResponseSchema: mi.supports_response_schema ?? null,
+      supportsAudioInput: mi.supports_audio_input ?? null,
+      supportsUrlContext: mi.supports_url_context ?? null,
+      supportsComputerUse: mi.supports_computer_use ?? null,
+      supportsAssistantPrefill: mi.supports_assistant_prefill ?? null,
+      thinkingAlwaysOn: mi.thinking_always_on ?? null,
+      // NOTE: `supports_web_search` and `supports_prompt_caching` are also
+      // present on the wire and are deliberately NOT copied here. Both are
+      // wrong on this gateway — see WEB_SEARCH_STYLE and CACHE_CAPABLE_MODELS.
+      gatewaySaysSupportsWebSearch: mi.supports_web_search ?? null,
+      gatewaySaysSupportsPromptCaching: mi.supports_prompt_caching ?? null
     };
   }
   return { pricing, info };
@@ -313,7 +363,7 @@ var IGNORED = {
   vertexNativeStructuredOutput: "structured output always uses `response_format.json_schema` here.",
   enableCitations: "the gateway has no native citation feature \u2014 ask for sources in your prompt instead."
 };
-var INERT_CACHE_OPTIONS = ["cacheSystemPrompt", "cacheTtl"];
+var INERT_CACHE_OPTIONS = [];
 function modelProvider(modelId) {
   const upstream = getModelInfo(modelId || "")?.upstreamModel || "";
   const probe = `${modelId || ""} ${upstream}`.toLowerCase();
@@ -338,9 +388,6 @@ function samplingSupport(modelId, opts = {}) {
     return { temperature: false, topP: false, topK: false, exclusiveTempTopP: false };
   }
   return { temperature: true, topP: true, topK: true, exclusiveTempTopP: false };
-}
-function supportsWebSearch(modelId) {
-  return modelProvider(modelId) === "anthropic";
 }
 var EFFORT_TO_WIRE = {
   minimal: "low",
@@ -395,15 +442,29 @@ function normalizeToolDeclarations(tools, klass) {
   });
 }
 function buildWebSearchTool(config, modelId, klass, silent = false) {
-  if (!supportsWebSearch(modelId)) {
+  const provider = modelProvider(modelId);
+  const cfg = config || {};
+  if (provider !== "anthropic" && provider !== "google" && provider !== "openai") {
     warnOnce(
       "enableWebSearch:model",
-      `[ak-litellm] ${klass}: \`enableWebSearch\` is ignored on '${modelId}' \u2014 web search on this gateway is the Anthropic server tool, which only claude-* models accept. Use a claude-* model to enable it.`,
+      `[ak-litellm] ${klass}: \`enableWebSearch\` is ignored on '${modelId}' \u2014 no web-search tool exists for it on this gateway. Anthropic, Gemini and GPT models can search; the Fireworks-hosted models (glm-*, kimi-*, deepseek-*) cannot.`,
       silent
     );
     return null;
   }
-  const cfg = config || {};
+  if (provider === "openai") return null;
+  if (provider === "google") {
+    for (const dropped of ["max_uses", "allowed_domains", "blocked_domains", "excludeDomains", "searchTypes", "timeRangeFilter"]) {
+      if (cfg[dropped] !== void 0) {
+        warnOnce(
+          `googleSearch.${dropped}`,
+          `[ak-litellm] ${klass}: \`webSearchConfig.${dropped}\` is ignored on a Gemini model \u2014 the googleSearch tool takes no configuration.`,
+          silent
+        );
+      }
+    }
+    return { googleSearch: {} };
+  }
   const blocked = cfg.blocked_domains ?? cfg.excludeDomains;
   for (const dropped of ["searchTypes", "timeRangeFilter"]) {
     if (cfg[dropped] !== void 0) {
@@ -530,12 +591,20 @@ function normalizeOptions(raw = {}, klass = "ak-litellm") {
   }
   for (const opt of INERT_CACHE_OPTIONS) {
     if (o[opt] === void 0) continue;
-    warnOnce(
-      opt,
-      `[ak-litellm] ${klass}: \`${opt}\` is accepted but inert \u2014 prompt caching does not engage through the Mixpanel gateway (verified 2026-09-08). You will be billed full input price on every call.`,
-      silent
-    );
+    warnOnce(opt, `[ak-litellm] ${klass}: \`${opt}\` is accepted but inert.`, silent);
     delete o[opt];
+  }
+  if (o.cacheSystemPrompt === void 0) o.cacheSystemPrompt = "auto";
+  else if (o.cacheSystemPrompt !== "auto") o.cacheSystemPrompt = !!o.cacheSystemPrompt;
+  if (o.cacheTtl === void 0) o.cacheTtl = "5m";
+  else if (o.cacheTtl !== "5m" && o.cacheTtl !== "1h") {
+    throw new Error(
+      `ak-litellm: \`cacheTtl\` must be '5m' or '1h', got ${JSON.stringify(o.cacheTtl)}. Those are the only two windows Anthropic's cache_control accepts.`
+    );
+  }
+  for (const opt of ["cacheContext", "cacheExamples"]) {
+    if (o[opt] === void 0) o[opt] = "auto";
+    else if (o[opt] !== "auto") o[opt] = !!o[opt];
   }
   if (o.modelName !== void 0 && o.modelName !== null) {
     o.modelName = resolveModelName(String(o.modelName), klass, silent);
@@ -653,6 +722,183 @@ async function healthCheck(client, modelName) {
   }
   logger_default.debug(`ak-litellm: health check ok \u2014 ${ids.length} models, '${modelName}' present`);
   return ids;
+}
+
+// capabilities.js
+var CACHE_CAPABLE_MODELS = Object.freeze([
+  "claude-opus-5",
+  "claude-opus-4-7",
+  "claude-sonnet-5",
+  "claude-fable-5-1",
+  "claude-fable-5",
+  // Team-scoped integration endpoints; both route to a caching Claude model.
+  "advisor",
+  "executor"
+]);
+var CACHE_MIN_TOKENS = 1024;
+function supportsPromptCaching(modelId) {
+  if (!modelId) return false;
+  const id = canonicalModelId(modelId) || modelId;
+  return CACHE_CAPABLE_MODELS.includes(id);
+}
+function webSearchStyle(modelId) {
+  if (!modelId) return null;
+  const id = canonicalModelId(modelId) || modelId;
+  const upstream = getModelInfo(id)?.upstreamModel || "";
+  const probe = `${id} ${upstream}`;
+  if (/claude|anthropic/i.test(probe)) return "anthropic";
+  if (/gemini|vertex_ai\/gemini/i.test(probe)) return "google";
+  if (/^gpt|openai\//i.test(probe)) return "openai";
+  return null;
+}
+var WEB_SEARCH_MIN_MAX_TOKENS = 1024;
+function getCapabilities(modelId) {
+  const id = modelId && (canonicalModelId(modelId) || modelId) || "";
+  const info = getModelInfo(id);
+  const yes = (v) => v === true;
+  if (!info) {
+    return {
+      id,
+      known: false,
+      maxInputTokens: null,
+      maxOutputTokens: null,
+      vision: true,
+      pdf: true,
+      audio: false,
+      tools: true,
+      toolChoice: true,
+      parallelTools: true,
+      reasoning: true,
+      thinkingAlwaysOn: false,
+      responseSchema: true,
+      promptCaching: supportsPromptCaching(id),
+      webSearch: webSearchStyle(id),
+      computerUse: false,
+      urlContext: false,
+      upstreamModel: null
+    };
+  }
+  return {
+    id,
+    known: true,
+    maxInputTokens: info.maxInputTokens ?? null,
+    maxOutputTokens: info.maxOutputTokens ?? null,
+    vision: yes(info.supportsVision),
+    pdf: yes(info.supportsPdfInput),
+    audio: yes(info.supportsAudioInput),
+    tools: yes(info.supportsFunctionCalling),
+    toolChoice: yes(info.supportsToolChoice),
+    parallelTools: yes(info.supportsParallelFunctionCalling),
+    reasoning: yes(info.supportsReasoning),
+    thinkingAlwaysOn: yes(info.thinkingAlwaysOn),
+    responseSchema: yes(info.supportsResponseSchema),
+    promptCaching: supportsPromptCaching(id),
+    webSearch: webSearchStyle(id),
+    computerUse: yes(info.supportsComputerUse),
+    urlContext: yes(info.supportsUrlContext),
+    upstreamModel: info.upstreamModel ?? null
+  };
+}
+function supportsVision(m) {
+  return getCapabilities(m).vision;
+}
+function supportsPdf(m) {
+  return getCapabilities(m).pdf;
+}
+function supportsTools(m) {
+  return getCapabilities(m).tools;
+}
+function supportsReasoning(m) {
+  return getCapabilities(m).reasoning;
+}
+function contextWindow(modelId) {
+  return getCapabilities(modelId).maxInputTokens;
+}
+var PREFILL_MODES = Object.freeze({
+  "claude-haiku-4-5": "continue",
+  "gpt-6-astra": "continue",
+  "glm-5.3": "continue",
+  "glm-5.3-flash": "continue",
+  "glm-fast-latest": "continue",
+  "gpt-5.5": "restart",
+  "gpt-5.6-sol": "restart",
+  "gpt-5.6-terra": "restart",
+  "gpt-5.6-luna": "restart",
+  "kimi-k3": "restart",
+  "deepseek-v4.1-flash": "restart",
+  "claude-sonnet-5": "reject",
+  "claude-opus-5": "reject",
+  "claude-opus-4-7": "reject",
+  "claude-fable-5-1": "reject",
+  "claude-fable-5": "reject",
+  "gemini-3.8-flash": "reject",
+  "advisor": "reject",
+  "executor": "reject"
+});
+function prefillMode(modelId) {
+  if (!modelId) return "restart";
+  const id = canonicalModelId(modelId) || modelId;
+  return PREFILL_MODES[id] ?? "restart";
+}
+function supportsPrefill(modelId) {
+  return prefillMode(modelId) !== "reject";
+}
+
+// responses.js
+function toResponsesRequest(params) {
+  const messages = Array.isArray(params.messages) ? [...params.messages] : [];
+  let instructions;
+  if (messages[0]?.role === "system") {
+    const sys = messages.shift();
+    instructions = typeof sys.content === "string" ? sys.content : (sys.content || []).map((p) => p?.text || "").join("");
+  }
+  const body = { model: params.model, input: messages };
+  if (instructions) body.instructions = instructions;
+  if (params.max_tokens != null) body.max_output_tokens = params.max_tokens;
+  if (params.reasoning_effort) body.reasoning = { effort: params.reasoning_effort };
+  if (params.temperature != null) body.temperature = params.temperature;
+  if (params.top_p != null) body.top_p = params.top_p;
+  if (params.metadata) body.metadata = params.metadata;
+  if (params.tools?.length) body.tools = params.tools;
+  if (params.stream) body.stream = true;
+  return body;
+}
+function fromResponsesReply(resp) {
+  const output = Array.isArray(resp?.output) ? resp.output : [];
+  const text = output.filter((o) => o?.type === "message").flatMap((o) => o.content || []).filter((c) => c?.type === "output_text" || typeof c?.text === "string").map((c) => c.text || "").join("");
+  const webSearchRequests = output.filter((o) => o?.type === "web_search_call").length;
+  const u = resp?.usage || {};
+  return {
+    id: resp?.id ?? null,
+    model: resp?.model ?? null,
+    object: "chat.completion",
+    choices: [{
+      index: 0,
+      message: { role: "assistant", content: text },
+      // `incomplete` means the output cap was hit mid-answer.
+      finish_reason: resp?.status === "completed" ? "stop" : resp?.status || "stop"
+    }],
+    usage: {
+      prompt_tokens: u.input_tokens || 0,
+      completion_tokens: u.output_tokens || 0,
+      total_tokens: u.total_tokens || 0,
+      prompt_tokens_details: {
+        cached_tokens: u.input_tokens_details?.cached_tokens || 0,
+        cache_creation_tokens: u.input_tokens_details?.cache_write_tokens || 0,
+        web_search_requests: webSearchRequests
+      },
+      completion_tokens_details: {
+        reasoning_tokens: u.output_tokens_details?.reasoning_tokens || 0
+      }
+    },
+    /** Kept so callers can inspect reasoning and search items if they want them. */
+    _responsesOutput: output
+  };
+}
+function needsResponsesTransport(transport, searchStyle, webSearchEnabled) {
+  if (transport === "responses") return true;
+  if (transport === "chat") return false;
+  return webSearchEnabled && searchStyle === "openai";
 }
 
 // json-helpers.js
@@ -982,7 +1228,13 @@ var BaseLiteLLM = class {
     const o = normalizeOptions(options, new.target?.name || this.constructor.name);
     this.modelName = o.modelName || DEFAULT_MODEL;
     this.systemPrompt = o.systemPrompt !== void 0 ? o.systemPrompt : null;
-    this.apiKey = resolveApiKey(o.apiKey);
+    this.apiKey;
+    Object.defineProperty(this, "apiKey", {
+      value: resolveApiKey(o.apiKey),
+      enumerable: false,
+      configurable: true,
+      writable: true
+    });
     this.baseURL = resolveBaseURL(o.baseURL);
     this.timeout = o.timeout;
     this.maxTokens = o.maxTokens === null ? null : o.maxTokens ?? DEFAULT_MAX_TOKENS;
@@ -992,6 +1244,13 @@ var BaseLiteLLM = class {
     this.effort = o.effort ?? null;
     this.enableWebSearch = o.enableWebSearch ?? false;
     this.webSearchConfig = o.webSearchConfig ?? {};
+    this.prefill = o.prefill ?? null;
+    this.transport = o.transport ?? "auto";
+    this.contextGuard = o.contextGuard ?? "warn";
+    this.cacheSystemPrompt = o.cacheSystemPrompt ?? "auto";
+    this.cacheTtl = o.cacheTtl ?? "5m";
+    this.cacheContext = o.cacheContext ?? "auto";
+    this.cacheExamples = o.cacheExamples ?? "auto";
     this.labels = o.labels ?? null;
     this.metadata = labelsToMetadata(this.labels);
     this.healthCheck = o.healthCheck ?? false;
@@ -1065,7 +1324,56 @@ var BaseLiteLLM = class {
    */
   _buildSystemMessage() {
     if (!this.systemPrompt) return void 0;
-    return { role: "system", content: this.systemPrompt };
+    if (!this._shouldCache(this.cacheSystemPrompt, this.systemPrompt)) {
+      return { role: "system", content: this.systemPrompt };
+    }
+    return {
+      role: "system",
+      content: [{
+        type: "text",
+        text: this.systemPrompt,
+        cache_control: { type: "ephemeral", ttl: this.cacheTtl }
+      }]
+    };
+  }
+  /**
+   * Decides whether one block is worth marking with `cache_control`.
+   *
+   * `'auto'` (the default) is silent when it declines — caching a block on a
+   * model that cannot cache is a no-op, not a mistake the caller made, so it
+   * must not produce a warning. An explicit `true` on a model that cannot cache
+   * IS something the caller got wrong, so that warns once.
+   *
+   * @param {boolean|'auto'} setting  `cacheSystemPrompt` / `cacheContext` / `cacheExamples`
+   * @param {string} text             the block that would be cached
+   * @param {string} [modelName]
+   * @returns {boolean}
+   * @protected
+   */
+  _shouldCache(setting, text, modelName = this.modelName) {
+    if (setting === false || !text) return false;
+    const modelCan = supportsPromptCaching(modelName);
+    const bigEnough = text.length / CHARS_PER_TOKEN >= CACHE_MIN_TOKENS;
+    if (setting === true) {
+      if (!modelCan) {
+        warnOnce(
+          "cacheSystemPrompt:model",
+          `[ak-litellm] ${this.constructor.name}: prompt caching is on but '${modelName}' does not cache. Verified 2026-09-11 \u2014 claude-haiku-4-5, gemini-* and gpt-* accept cache_control and ignore it. Caching models: claude-sonnet-5, claude-opus-5, claude-opus-4-7, claude-fable-5-1.`,
+          this._silentCompat
+        );
+        return false;
+      }
+      if (!bigEnough) {
+        warnOnce(
+          "cacheSystemPrompt:size",
+          `[ak-litellm] ${this.constructor.name}: prompt caching is on but the block is roughly ${Math.round(text.length / CHARS_PER_TOKEN)} tokens, below the ${CACHE_MIN_TOKENS}-token minimum. Anthropic accepts cache_control below that and does nothing with it.`,
+          this._silentCompat
+        );
+        return false;
+      }
+      return true;
+    }
+    return modelCan && bigEnough;
   }
   /**
    * Builds the tools array: user tools normalized to the OpenAI function shape,
@@ -1149,6 +1457,7 @@ var BaseLiteLLM = class {
    * @param {string} [opts.model]
    * @param {boolean} [opts.stream]
    * @param {Record<string, string>} [opts.labels] ak-gemini per-message billing labels
+   * @param {string|null} [opts.prefill] trailing assistant turn to continue from
    * @returns {any}
    * @protected
    */
@@ -1156,11 +1465,21 @@ var BaseLiteLLM = class {
     const model = opts.model || this.modelName;
     const systemMessage = opts.systemPrompt !== void 0 ? opts.systemPrompt ? { role: "system", content: opts.systemPrompt } : void 0 : this._buildSystemMessage();
     const body = opts.messages ?? this.history;
-    const params = {
-      model,
-      messages: systemMessage ? [systemMessage, ...body] : [...body]
-    };
-    const maxTokens = opts.maxTokens ?? this.maxTokens;
+    const prefill = opts.prefill !== void 0 ? opts.prefill : this.prefill;
+    const messages = systemMessage ? [systemMessage, ...body] : [...body];
+    if (prefill && this._prefillUsable(prefill, model)) {
+      messages.push({ role: "assistant", content: prefill });
+    }
+    const params = { model, messages };
+    let maxTokens = opts.maxTokens ?? this.maxTokens;
+    if (this.enableWebSearch && webSearchStyle(model) && maxTokens !== null && maxTokens !== void 0 && maxTokens < WEB_SEARCH_MIN_MAX_TOKENS) {
+      warnOnce(
+        "webSearch:maxTokens",
+        `[ak-litellm] ${this.constructor.name}: raising \`maxTokens\` from ${maxTokens} to ${WEB_SEARCH_MIN_MAX_TOKENS} for this web-search call. A grounded reply spends reasoning tokens before any text, and a low cap returns empty content.`,
+        this._silentCompat
+      );
+      maxTokens = WEB_SEARCH_MIN_MAX_TOKENS;
+    }
     if (maxTokens !== null && maxTokens !== void 0) params.max_tokens = maxTokens;
     const tools = this._buildTools(opts.tools, model);
     if (tools?.length) params.tools = tools;
@@ -1271,11 +1590,72 @@ var BaseLiteLLM = class {
    * @protected
    */
   async _call(params) {
+    if (this._useResponsesTransport(params.model)) return this._callResponses(params);
     try {
       const { data, response: httpResponse } = await this.client.chat.completions.create(params).withResponse();
       const headers = parseGatewayHeaders(httpResponse);
       Object.defineProperty(data, "_gatewayHeaders", {
         value: headers,
+        enumerable: false,
+        configurable: true,
+        writable: true
+      });
+      return data;
+    } catch (err) {
+      throw mapGatewayError(err, { model: params?.model });
+    }
+  }
+  /**
+   * Whether this request must use `/v1/responses` instead of chat completions.
+   *
+   * @param {string} [modelName]
+   * @returns {boolean}
+   * @protected
+   */
+  _useResponsesTransport(modelName = this.modelName) {
+    return needsResponsesTransport(this.transport, webSearchStyle(modelName), !!this.enableWebSearch);
+  }
+  /**
+   * Round-trip over `/v1/responses`, adapted to look like a chat completion.
+   *
+   * The `openai` SDK's own `responses.create()` is not used: LiteLLM returns a
+   * superset of fields the SDK's parser drops, including the `web_search_call`
+   * items this transport exists to surface. A plain fetch keeps all of it, and
+   * the headers still come back for the cost figure.
+   *
+   * @param {any} params a chat-completions body
+   * @returns {Promise<any>} a chat-completions-shaped reply
+   * @protected
+   */
+  async _callResponses(params) {
+    if (params.tools?.some((t) => t?.type === "function")) {
+      throw new Error(
+        "ak-litellm: function calling is not supported over the /v1/responses transport. Either drop `enableWebSearch` so the call uses /v1/chat/completions, or use a claude-* / gemini-* model, whose web search works there."
+      );
+    }
+    const body = toResponsesRequest({
+      ...params,
+      tools: [...params.tools || [], { type: "web_search" }]
+    });
+    try {
+      const res = await fetch(`${this.baseURL}/responses`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.apiKey}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(body)
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        throw mapGatewayError(
+          Object.assign(new Error(json?.error?.message || `HTTP ${res.status}`), { status: res.status }),
+          { model: params?.model }
+        );
+      }
+      const data = fromResponsesReply(json);
+      Object.defineProperty(data, "_gatewayHeaders", {
+        value: parseGatewayHeaders(res),
         enumerable: false,
         configurable: true,
         writable: true
@@ -1334,6 +1714,51 @@ var BaseLiteLLM = class {
    * @returns {string}
    * @protected
    */
+  /**
+   * Whether a prefill should actually be put on the wire for this model.
+   *
+   * `reject` models return 400 `This model does not support...`, so sending one
+   * would break a call that would otherwise succeed. That is a real mistake by
+   * the caller, so it warns once rather than failing silently.
+   *
+   * @param {string} prefill
+   * @param {string} [modelName]
+   * @returns {boolean}
+   * @protected
+   */
+  _prefillUsable(prefill, modelName = this.modelName) {
+    if (!prefill) return false;
+    const mode = prefillMode(modelName);
+    if (mode === "reject") {
+      warnOnce(
+        "prefill:model",
+        `[ak-litellm] ${this.constructor.name}: \`prefill\` is ignored on '${modelName}' \u2014 it returns 400 for a trailing assistant message. Measured 2026-09-11: claude-haiku-4-5, gpt-6-astra and the glm-* models continue from a prefill; claude-sonnet-5, claude-opus-*, claude-fable-* and gemini-* reject it.`,
+        this._silentCompat
+      );
+      return false;
+    }
+    return true;
+  }
+  /**
+   * Puts a prefilled reply back together.
+   *
+   * Only a `continue` model needs its prefix prepended. A `restart` model
+   * re-emits the prefix itself, so concatenating there would produce corrupt
+   * output like `["red",["red","blue"]`.
+   *
+   * @param {string} text     raw model output
+   * @param {string|null} prefill
+   * @param {string} [modelName]
+   * @returns {{ text: string, continuation: string }}
+   * @protected
+   */
+  _applyPrefill(text, prefill, modelName = this.modelName) {
+    if (!prefill || !this._prefillUsable(prefill, modelName)) {
+      return { text, continuation: text };
+    }
+    const mode = prefillMode(modelName);
+    return mode === "continue" ? { text: prefill + text, continuation: text } : { text, continuation: text };
+  }
   _extractText(response) {
     const content = response?.choices?.[0]?.message?.content;
     if (typeof content === "string") return content;
@@ -1441,7 +1866,7 @@ ${contextText}
   /**
    * Reads the token counts out of a chat-completions `usage` block.
    * @param {any} response
-   * @returns {{promptTokens:number, responseTokens:number, totalTokens:number, thoughtsTokens:number, cacheCreationTokens:number, cacheReadTokens:number}}
+   * @returns {{promptTokens:number, responseTokens:number, totalTokens:number, thoughtsTokens:number, cacheCreationTokens:number, cacheReadTokens:number, webSearchRequests:number}}
    * @protected
    */
   _readUsage(response) {
@@ -1457,7 +1882,10 @@ ${contextText}
       // (verified 2026-09-08). Read anyway, so the numbers become real the
       // day the gateway starts honoring cache_control.
       cacheCreationTokens: u.prompt_tokens_details?.cache_creation_tokens || 0,
-      cacheReadTokens: u.prompt_tokens_details?.cached_tokens || 0
+      cacheReadTokens: u.prompt_tokens_details?.cached_tokens || 0,
+      // Providers bill searches separately from tokens, so this is the only
+      // signal that a grounded turn cost more than its token count implies.
+      webSearchRequests: u.prompt_tokens_details?.web_search_requests || 0
     };
   }
   /**
@@ -1499,6 +1927,7 @@ ${contextText}
       thoughtsTokens: 0,
       cacheCreationTokens: 0,
       cacheReadTokens: 0,
+      webSearchRequests: 0,
       totalTokens: 0,
       attempts: 0,
       /** Summed `x-litellm-response-cost`. Valid only while gatewayCostComplete. */
@@ -1543,6 +1972,7 @@ ${contextText}
     c.thoughtsTokens += meta.thoughtsTokens || 0;
     c.cacheCreationTokens += meta.cacheCreationTokens || 0;
     c.cacheReadTokens += meta.cacheReadTokens || 0;
+    c.webSearchRequests += meta.webSearchRequests || 0;
     c.totalTokens += meta.totalTokens || 0;
     c.attempts += 1;
     if (meta.gatewayCost === null) c.gatewayCostComplete = false;
@@ -1578,13 +2008,16 @@ ${contextText}
     const thoughtsTokens = useCumulative ? c.thoughtsTokens : meta.thoughtsTokens;
     const cacheCreationTokens = useCumulative ? c.cacheCreationTokens : meta.cacheCreationTokens;
     const cacheReadTokens = useCumulative ? c.cacheReadTokens : meta.cacheReadTokens;
+    const webSearchRequests = useCumulative ? c.webSearchRequests : meta.webSearchRequests || 0;
     const gatewayCost = useCumulative ? c.gatewayCostComplete ? c.gatewayCost : null : meta.gatewayCost;
     const { estimatedCost, costSource } = this._resolveCost(
       gatewayCost,
       meta.modelVersion,
       promptTokens,
       responseTokens,
-      thoughtsTokens
+      thoughtsTokens,
+      cacheReadTokens,
+      cacheCreationTokens
     );
     return {
       promptTokens,
@@ -1594,6 +2027,7 @@ ${contextText}
       cacheCreationTokens,
       cacheReadTokens,
       cachedTokens: cacheReadTokens,
+      webSearchRequests,
       attempts: useCumulative ? c.attempts : 1,
       modelVersion: meta.modelVersion,
       requestedModel: meta.requestedModel,
@@ -1621,12 +2055,13 @@ ${contextText}
    * @returns {{ estimatedCost: number|null, costSource: 'gateway'|'estimated'|null }}
    * @protected
    */
-  _resolveCost(gatewayCost, modelVersion, promptTokens, responseTokens, thoughtsTokens = 0) {
+  _resolveCost(gatewayCost, modelVersion, promptTokens, responseTokens, thoughtsTokens = 0, cacheReadTokens = 0, cacheCreationTokens = 0) {
     if (gatewayCost !== null && gatewayCost !== void 0) {
       return { estimatedCost: gatewayCost, costSource: "gateway" };
     }
-    const usage = { promptTokens, responseTokens, thoughtsTokens };
-    const estimated = computeCost(usage, modelVersion) ?? computeCost(usage, this.modelName);
+    const usage = { promptTokens, responseTokens, thoughtsTokens, cacheReadTokens, cacheCreationTokens };
+    const opts = { cacheTtl: this.cacheTtl };
+    const estimated = computeCost(usage, modelVersion, opts) ?? computeCost(usage, this.modelName, opts);
     return estimated === null || estimated === void 0 ? { estimatedCost: null, costSource: null } : { estimatedCost: estimated, costSource: "estimated" };
   }
   /**
@@ -1648,11 +2083,14 @@ ${contextText}
       modelVersion,
       t.promptTokens,
       t.responseTokens,
-      t.thoughtsTokens
+      t.thoughtsTokens,
+      t.cacheReadTokens,
+      t.cacheCreationTokens
     );
     return {
       ...t,
       cachedTokens: t.cacheReadTokens,
+      webSearchRequests: t.webSearchRequests || 0,
       attempts,
       modelVersion,
       requestedModel: this.modelName,
@@ -1677,7 +2115,7 @@ ${contextText}
    * non-Latin scripts and code. Budget accordingly.
    *
    * @param {Object|string} nextPayload
-   * @returns {Promise<{ inputTokens: number, approximate: true }>}
+   * @returns {Promise<{ inputTokens: number, approximate: true, contextWindow: number|null, fits: boolean, headroom: number }>}
    */
   async estimate(nextPayload) {
     if (!this._initialized) await this.init();
@@ -1700,16 +2138,18 @@ ${contextText}
     );
     if (tools?.length) chars += JSON.stringify(tools).length;
     const inputTokens = Math.ceil(chars / CHARS_PER_TOKEN);
-    const limit = getModelInfo(this.modelName)?.maxInputTokens;
-    if (limit && inputTokens > limit) {
+    const contextWindow2 = getModelInfo(this.modelName)?.maxInputTokens ?? null;
+    const fits = contextWindow2 === null ? true : inputTokens <= contextWindow2;
+    const headroom = contextWindow2 === null ? Infinity : contextWindow2 - inputTokens;
+    if (!fits) {
       logger_default.warn(
-        `ak-litellm: estimated ${inputTokens} input tokens exceeds the ${limit}-token context window of "${this.modelName}".`
+        `ak-litellm: estimated ${inputTokens} input tokens exceeds the ${contextWindow2}-token context window of "${this.modelName}".`
       );
     }
     return { inputTokens, approximate: (
       /** @type {true} */
       true
-    ) };
+    ), contextWindow: contextWindow2, fits, headroom };
   }
   /**
    * Estimates the INPUT cost of sending a payload.
@@ -2046,10 +2486,40 @@ Respond with JSON only \u2013 no comments or explanations.
    * @returns {Promise<Object>}
    * @private
    */
+  /**
+   * Marks the seeded few-shot block for caching.
+   *
+   * The examples are identical on every `send()`, so on a caching model they
+   * are the cheapest thing in the package to cache. `cache_control` goes on the
+   * last example — Anthropic caches the prefix up to and including it.
+   *
+   * Returns the messages untouched when caching is off, the model cannot cache,
+   * or the block is under the size floor.
+   *
+   * @param {any[]} examples seeded history entries
+   * @returns {any[]}
+   * @private
+   */
+  _cacheableExamples(examples) {
+    if (!examples.length) return examples;
+    const text = examples.map((m) => typeof m.content === "string" ? m.content : JSON.stringify(m.content)).join("");
+    if (!this._shouldCache(this.cacheExamples, text)) return examples;
+    const out = examples.slice();
+    const last = out[out.length - 1];
+    const content = typeof last.content === "string" ? [{ type: "text", text: last.content }] : [...last.content];
+    content[content.length - 1] = {
+      ...content[content.length - 1],
+      cache_control: { type: "ephemeral", ttl: this.cacheTtl }
+    };
+    out[out.length - 1] = { ...last, content };
+    return out;
+  }
   async _statelessSend(payload, opts = {}, validatorFn = null) {
     const payloadStr = typeof payload === "string" ? payload : JSON.stringify(payload, null, 2);
     const messages = [];
-    if (this.exampleCount > 0) messages.push(...this.history.slice(0, this.exampleCount));
+    if (this.exampleCount > 0) {
+      messages.push(...this._cacheableExamples(this.history.slice(0, this.exampleCount)));
+    }
     messages.push({ role: "user", content: payloadStr });
     const params = this._buildRequestParams({
       messages,
@@ -2151,7 +2621,9 @@ var Chat = class extends base_default {
     this._resetUsage();
     const response = await this._sendMessage(message, opts);
     this._accumulateUsage(response, response._gatewayHeaders);
-    return { text: this._extractText(response), usage: this.getLastUsage() };
+    const prefill = opts.prefill !== void 0 ? opts.prefill : this.prefill;
+    const { text, continuation } = this._applyPrefill(this._extractText(response), prefill);
+    return prefill ? { text, continuation, usage: this.getLastUsage() } : { text, usage: this.getLastUsage() };
   }
   /**
    * Send a message and stream the response.
@@ -2242,7 +2714,10 @@ ${jsonInstruction}` : jsonInstruction;
     const maxAttempts = this._responseSchema ? 1 + retries : 1;
     let userContent = payloadStr;
     let text = "";
+    let continuation = "";
     let data;
+    const requested = opts.prefill !== void 0 ? opts.prefill : this.prefill;
+    const prefillUsed = requested && this._prefillUsable(requested) ? requested : null;
     let validationErrors = null;
     let lastResponse = null;
     let cumPrompt = 0, cumResponse = 0, cumThoughts = 0, attempts = 0;
@@ -2265,6 +2740,11 @@ ${jsonInstruction}` : jsonInstruction;
       if (cost === null) gatewayCostComplete = false;
       else gatewayCost += cost;
       text = this._extractText(response);
+      if (prefillUsed) {
+        const applied = this._applyPrefill(text, prefillUsed);
+        text = applied.text;
+        continuation = applied.continuation;
+      }
       if (!this._isStructured) {
         data = void 0;
         break;
@@ -2308,14 +2788,17 @@ Respond ONLY with corrected JSON that matches the schema. No markdown, no preamb
       cacheReadTokens: 0,
       attempts,
       gatewayCost,
-      gatewayCostComplete
+      gatewayCostComplete,
+      webSearchRequests: this._readUsage(lastResponse).webSearchRequests
     };
     const { estimatedCost, costSource } = this._resolveCost(
       gatewayCostComplete ? gatewayCost : null,
       lastResponse?.model,
       cumPrompt,
       cumResponse,
-      cumThoughts
+      cumThoughts,
+      this._readUsage(lastResponse).cacheReadTokens,
+      this._readUsage(lastResponse).cacheCreationTokens
     );
     const usage = {
       ...this._usageFromResponse(lastResponse, attempts),
@@ -2329,6 +2812,7 @@ Respond ONLY with corrected JSON that matches the schema. No markdown, no preamb
     const result = { text, usage };
     if (this._isStructured) result.data = data;
     if (validationErrors) result.validationErrors = validationErrors;
+    if (prefillUsed) result.continuation = continuation;
     return result;
   }
   // ── No-ops for a stateless class ──
@@ -2393,6 +2877,11 @@ var ToolAgent = class extends base_default {
       return t;
     });
     this.toolExecutor = o.toolExecutor || null;
+    if (this.tools.length && !supportsTools(this.modelName)) {
+      throw new Error(
+        `ak-litellm: ToolAgent needs a model that supports function calling, and '${this.modelName}' does not. Every claude-*, gemini-* and gpt-* model on this gateway does.`
+      );
+    }
     if (this.tools.length > 0 && !this.toolExecutor) {
       throw new Error("ToolAgent: tools provided without a toolExecutor. Provide a toolExecutor function to handle tool calls.");
     }
@@ -3738,7 +4227,16 @@ var RagAgent = class extends base_default {
       logger_default.debug(`Encoding media file: ${resolvedPath} (${mimeType})`);
       const buffer = await (0, import_promises3.readFile)(resolvedPath);
       const base64 = buffer.toString("base64");
-      if (mimeType.startsWith("image/")) {
+      const cap = getCapabilities(this.modelName);
+      if (mimeType.startsWith("image/") && !cap.vision) {
+        logger_default.warn(
+          `RagAgent: "${(0, import_node_path2.basename)(resolvedPath)}" skipped \u2014 '${this.modelName}' cannot read images. Use a vision model such as claude-sonnet-5 or gemini-3.8-flash.`
+        );
+      } else if (mimeType === "application/pdf" && !cap.pdf) {
+        logger_default.warn(
+          `RagAgent: "${(0, import_node_path2.basename)(resolvedPath)}" skipped \u2014 '${this.modelName}' cannot read PDFs. Convert it to text, or use a model with PDF input.`
+        );
+      } else if (mimeType.startsWith("image/")) {
         this._mediaContentBlocks.push({
           type: "image_url",
           image_url: { url: `data:${mimeType};base64,${base64}` }
@@ -3768,6 +4266,13 @@ ${serialized}` });
     }
     if (contentParts.length > 0) {
       contentParts.push({ type: "text", text: "Here are the documents and data to analyze." });
+      const cacheableText = contentParts.filter((p) => p.type === "text").map((p) => p.text).join("");
+      if (this._shouldCache(this.cacheContext, cacheableText)) {
+        contentParts[contentParts.length - 1] = {
+          ...contentParts[contentParts.length - 1],
+          cache_control: { type: "ephemeral", ttl: this.cacheTtl }
+        };
+      }
       this.history = [
         { role: "user", content: contentParts },
         { role: "assistant", content: "I have reviewed all the provided documents and data. I am ready to answer your questions about them." }
@@ -3912,6 +4417,13 @@ var AgentQuery = class {
     );
   }
 };
+var BatchTransformer = class {
+  constructor() {
+    throw new Error(
+      'ak-litellm: batch is unavailable on this gateway. `POST /v1/files` returns "files_settings is not set". The /v1/batches route itself works, so this is a gateway config change, not a wrapper change \u2014 ask the LiteLLM operator to set `files_settings` in config.yaml. Verify with `npm run probe-capabilities`. Until then, use Transformer with concurrent send() calls.'
+    );
+  }
+};
 
 // index.js
 var ThinkingLevel = Object.freeze({
@@ -3949,6 +4461,11 @@ var index_default = { Transformer: transformer_default, Chat: chat_default, Mess
   BaseClaude,
   BaseGemini,
   BaseLiteLLM,
+  BatchTransformer,
+  CACHE_CAPABLE_MODELS,
+  CACHE_MIN_TOKENS,
+  CACHE_READ_MULTIPLIER,
+  CACHE_WRITE_MULTIPLIER,
   Chat,
   CodeAgent,
   DEFAULT_MODEL,
@@ -3962,23 +4479,38 @@ var index_default = { Transformer: transformer_default, Chat: chat_default, Mess
   MODEL_PRICING,
   MODEL_PRICING_AS_OF,
   Message,
+  PREFILL_MODES,
   RagAgent,
   ThinkingLevel,
   ToolAgent,
   Transformer,
+  WEB_SEARCH_MIN_MAX_TOKENS,
   attemptJSONRecovery,
   budgetTokensToEffort,
   computeCost,
+  contextWindow,
   extractJSON,
+  fromResponsesReply,
+  getCapabilities,
   getModelInfo,
   isJSON,
   isJSONStr,
   listModels,
   log,
   modelProvider,
+  needsResponsesTransport,
   normalizeOptions,
+  prefillMode,
   refreshModelInfo,
   resolvePricing,
   samplingSupport,
-  validateSchema
+  supportsPdf,
+  supportsPrefill,
+  supportsPromptCaching,
+  supportsReasoning,
+  supportsTools,
+  supportsVision,
+  toResponsesRequest,
+  validateSchema,
+  webSearchStyle
 });

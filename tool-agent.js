@@ -14,6 +14,7 @@
 
 import BaseLiteLLM from './base.js';
 import { normalizeOptions } from './compat.js';
+import { supportsTools } from './capabilities.js';
 import log from './logger.js';
 
 /**
@@ -130,6 +131,16 @@ class ToolAgent extends BaseLiteLLM {
 			return t;
 		});
 		this.toolExecutor = o.toolExecutor || null;
+
+		// Fail here, not on the first send. A model with no function calling can
+		// never satisfy a ToolAgent, and the provider's own error does not say so.
+		if (this.tools.length && !supportsTools(this.modelName)) {
+			throw new Error(
+				`ak-litellm: ToolAgent needs a model that supports function calling, and ` +
+				`'${this.modelName}' does not. Every claude-*, gemini-* and gpt-* model on ` +
+				`this gateway does.`
+			);
+		}
 
 		if (this.tools.length > 0 && !this.toolExecutor) {
 			throw new Error('ToolAgent: tools provided without a toolExecutor. Provide a toolExecutor function to handle tool calls.');

@@ -354,13 +354,50 @@ Respond with JSON only – no comments or explanations.
 	 * @returns {Promise<Object>}
 	 * @private
 	 */
+	/**
+	 * Marks the seeded few-shot block for caching.
+	 *
+	 * The examples are identical on every `send()`, so on a caching model they
+	 * are the cheapest thing in the package to cache. `cache_control` goes on the
+	 * last example — Anthropic caches the prefix up to and including it.
+	 *
+	 * Returns the messages untouched when caching is off, the model cannot cache,
+	 * or the block is under the size floor.
+	 *
+	 * @param {any[]} examples seeded history entries
+	 * @returns {any[]}
+	 * @private
+	 */
+	_cacheableExamples(examples) {
+		if (!examples.length) return examples;
+
+		const text = examples
+			.map(m => (typeof m.content === 'string' ? m.content : JSON.stringify(m.content)))
+			.join('');
+		if (!this._shouldCache(this.cacheExamples, text)) return examples;
+
+		const out = examples.slice();
+		const last = out[out.length - 1];
+		const content = typeof last.content === 'string'
+			? [{ type: 'text', text: last.content }]
+			: [...last.content];
+		content[content.length - 1] = {
+			...content[content.length - 1],
+			cache_control: { type: 'ephemeral', ttl: this.cacheTtl }
+		};
+		out[out.length - 1] = { ...last, content };
+		return out;
+	}
+
 	async _statelessSend(payload, opts = {}, validatorFn = null) {
 		const payloadStr = typeof payload === 'string'
 			? payload
 			: JSON.stringify(payload, null, 2);
 
 		const messages = [];
-		if (this.exampleCount > 0) messages.push(...this.history.slice(0, this.exampleCount));
+		if (this.exampleCount > 0) {
+			messages.push(...this._cacheableExamples(this.history.slice(0, this.exampleCount)));
+		}
 		messages.push({ role: 'user', content: payloadStr });
 
 		const params = this._buildRequestParams({

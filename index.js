@@ -44,6 +44,34 @@ export {
 // ── Compat layer (exported for tests and for consumers inspecting behavior) ──
 export { normalizeOptions, samplingSupport, modelProvider } from './compat.js';
 
+// ── Capability layer ─────────────────────────────────────────────────────────
+// What each model can actually do. Two of the gateway's own flags are wrong
+// (prompt caching and web search), so these are measured, not reported.
+export {
+	getCapabilities,
+	contextWindow,
+	supportsVision,
+	supportsPdf,
+	supportsTools,
+	supportsReasoning,
+	supportsPromptCaching,
+	supportsPrefill,
+	prefillMode,
+	webSearchStyle,
+	CACHE_CAPABLE_MODELS,
+	CACHE_MIN_TOKENS,
+	CACHE_WRITE_MULTIPLIER,
+	CACHE_READ_MULTIPLIER,
+	PREFILL_MODES,
+	WEB_SEARCH_MIN_MAX_TOKENS
+} from './capabilities.js';
+
+// ── Transports ───────────────────────────────────────────────────────────────
+export { toResponsesRequest, fromResponsesReply, needsResponsesTransport } from './responses.js';
+
+// ── Unavailable on this gateway (constructors throw with the remedy) ─────────
+export { BatchTransformer } from './unsupported.js';
+
 // ── Utilities ──
 export { default as log } from './logger.js';
 export { extractJSON, attemptJSONRecovery, validateSchema, isJSON, isJSONStr } from './json-helpers.js';

@@ -194,11 +194,27 @@ describe('request body', () => {
 		expect(mock.lastRequest().tools[0]).toMatchObject({ type: 'web_search_20250305', name: 'web_search', max_uses: 2 });
 	});
 
-	it('sends no web-search tool on a non-Claude model', async () => {
+	it('sends the googleSearch shape on a Gemini model', async () => {
 		const chat = new Chat({ ...OPTS, modelName: 'gemini-3.8-flash', enableGrounding: true });
 		mock.queue(chatResponse('ok', { model: 'gemini-3.8-flash' }));
 		await chat.send('hi');
+		expect(mock.lastRequest().tools).toEqual([{ googleSearch: {} }]);
+	});
+
+	it('sends no web-search tool on a model that cannot search', async () => {
+		const chat = new Chat({ ...OPTS, modelName: 'kimi-k3', enableWebSearch: true });
+		mock.queue(chatResponse('ok', { model: 'kimi-k3' }));
+		await chat.send('hi');
 		expect(mock.lastRequest().tools).toBeUndefined();
+	});
+
+	it('raises a too-low maxTokens for a grounded call', async () => {
+		// A grounded reply spends reasoning tokens before any text; a 64-token cap
+		// returns empty content and looks like a failure.
+		const chat = new Chat({ ...OPTS, modelName: 'gemini-3.8-flash', enableGrounding: true, maxTokens: 64 });
+		mock.queue(chatResponse('ok', { model: 'gemini-3.8-flash' }));
+		await chat.send('hi');
+		expect(mock.lastRequest().max_tokens).toBe(1024);
 	});
 });
 

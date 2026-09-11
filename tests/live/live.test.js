@@ -16,6 +16,7 @@
 
 import { jest } from '@jest/globals';
 import { Chat, Message, ToolAgent, Transformer, RagAgent, listModels } from '../../index.js';
+import { CACHE_CAPABLE_MODELS, supportsPromptCaching, prefillMode } from '../../capabilities.js';
 
 const LIVE = process.env.LITELLM_LIVE === '1';
 const d = LIVE ? describe : describe.skip;
@@ -61,7 +62,107 @@ d('live: transport', () => {
 	});
 });
 
-d('live: gateway fact 1 — the cost header', () => {
+d('live: prompt caching (works since the 2026-09-11 key upgrade)', () => {
+	// ~4.8k tokens: clears Anthropic's 1024-token minimum with room to spare.
+	const BIG = 'Mixpanel is a product analytics platform used by engineering and product teams. '.repeat(200);
+
+	it('a caching model writes then reads, and the read is far cheaper', async () => {
+		const tag = ` [live-${Date.now()}]`;
+		const mk = () => new Chat({
+			modelName: 'claude-sonnet-5', maxTokens: 32, logLevel: 'none',
+			systemPrompt: BIG + tag
+		});
+
+		const write = await mk().send('ok?');
+		bill(write.usage);
+		expect(write.usage.cacheCreationTokens).toBeGreaterThan(1000);
+
+		await new Promise(r => setTimeout(r, 3000));
+		const read = await mk().send('ok?');
+		bill(read.usage);
+
+		expect(read.usage.cacheReadTokens).toBeGreaterThan(1000);
+		// Measured ~10x on 2026-09-11. Assert a conservative floor so a partial
+		// regression still trips this.
+		expect(read.usage.estimatedCost).toBeLessThan(write.usage.estimatedCost / 3);
+	});
+
+	it('claude-haiku-4-5 does NOT cache, whatever the gateway flag says', async () => {
+		// This is why capabilities.js keeps a measured list instead of reading
+		// `supports_prompt_caching`, which reports true here.
+		expect(supportsPromptCaching('claude-haiku-4-5')).toBe(false);
+
+		const tag = ` [live-haiku-${Date.now()}]`;
+		const mk = () => new Chat({
+			modelName: 'claude-haiku-4-5', maxTokens: 32, logLevel: 'none',
+			systemPrompt: BIG + tag, cacheSystemPrompt: true
+		});
+		const a = await mk().send('ok?'); bill(a.usage);
+		await new Promise(r => setTimeout(r, 2000));
+		const b = await mk().send('ok?'); bill(b.usage);
+
+		expect(a.usage.cacheCreationTokens).toBe(0);
+		expect(b.usage.cacheReadTokens).toBe(0);
+	});
+
+	it('every model on the measured cache list is still served', async () => {
+		const chat = new Chat(BASE);
+		const served = new Set();
+		for await (const m of chat.listModels()) served.add(m.id);
+		expect(CACHE_CAPABLE_MODELS.filter(id => !served.has(id))).toEqual([]);
+	});
+});
+
+d('live: web search — three providers, one option', () => {
+	const Q = 'Who won the 2026 FIFA World Cup? One sentence.';
+
+	it('Anthropic searches via the server tool', async () => {
+		const chat = new Chat({ modelName: 'claude-sonnet-5', maxTokens: 1024, logLevel: 'none', enableWebSearch: true });
+		const r = await chat.send(Q);
+		bill(r.usage);
+		expect(r.text.length).toBeGreaterThan(20);
+	});
+
+	it('Gemini searches via googleSearch and reports the search count', async () => {
+		const chat = new Chat({ modelName: 'gemini-3.8-flash', maxTokens: 1024, logLevel: 'none', enableGrounding: true });
+		const r = await chat.send(Q);
+		bill(r.usage);
+		expect(r.usage.webSearchRequests).toBeGreaterThan(0);
+	});
+
+	it('OpenAI searches over the /v1/responses transport', async () => {
+		// `{ type: 'web_search' }` is a hard 400 on /v1/chat/completions, so this
+		// only passes if the transport switch fired.
+		const chat = new Chat({ modelName: 'gpt-5.5', maxTokens: 1024, logLevel: 'none', enableWebSearch: true });
+		const r = await chat.send(Q);
+		bill(r.usage);
+		expect(r.text.length).toBeGreaterThan(20);
+		expect(r.usage.promptTokens).toBeGreaterThan(0);
+	});
+});
+
+d('live: assistant prefill', () => {
+	const ASK = 'List exactly two primary colors as a JSON array of strings. JSON only.';
+
+	it('a continue model resumes from the prefix and the result parses', async () => {
+		expect(prefillMode('claude-haiku-4-5')).toBe('continue');
+		const msg = new Message({ modelName: 'claude-haiku-4-5', maxTokens: 2048, logLevel: 'none', prefill: '["red",' });
+		const r = await msg.send(ASK);
+		bill(r.usage);
+		expect(() => JSON.parse(r.text)).not.toThrow();
+		expect(JSON.parse(r.text)[0]).toBe('red');
+	});
+
+	it('a reject model drops the prefill and still answers', async () => {
+		expect(prefillMode('claude-sonnet-5')).toBe('reject');
+		const msg = new Message({ modelName: 'claude-sonnet-5', maxTokens: 2048, logLevel: 'none', prefill: '["red",' });
+		const r = await msg.send(ASK);
+		bill(r.usage);
+		expect(r.text.length).toBeGreaterThan(0);
+	});
+});
+
+d('live: the cost header', () => {
 	it('a non-streaming call reports gateway-authoritative cost', async () => {
 		const msg = new Message(BASE);
 		const r = await msg.send('Say: ok');

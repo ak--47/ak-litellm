@@ -21,6 +21,7 @@ import log from './logger.js';
  * @typedef {import('./types').EffortLevel} EffortLevel
  * @typedef {import('./types').UsageData} UsageData
  * @typedef {import('./types').UsageLike} UsageLike
+ * @typedef {import('./types').CacheTtl} CacheTtl
  */
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -28,7 +29,7 @@ import log from './logger.js';
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** ISO date the tables below were generated from `GET /model/info` on https://litellm.mixpanel.org. */
-export const MODEL_PRICING_AS_OF = '2026-09-08';
+export const MODEL_PRICING_AS_OF = '2026-09-11';
 
 /** @type {Record<string, ModelPricing>} Per-MILLION-token USD rates, read from the gateway. */
 export const MODEL_PRICING = {
@@ -49,35 +50,31 @@ export const MODEL_PRICING = {
 	'glm-5.3': {"input":1.4,"output":4.4,"cachedInput":0.26},
 	'glm-5.3-flash': {"input":0.15,"output":0.5,"cachedInput":0.03},
 	'kimi-k3': {"input":3,"output":15,"cachedInput":0.3},
-	'deepseek-v4-pro': {"input":1.32,"output":3.96,"cachedInput":0.044},
-	'deepseek-v4-flash': {"input":0.22,"output":0.66,"cachedInput":0.007},
-	'qwen3.8-max': {"input":2,"output":6,"cachedInput":0.25},
+	'deepseek-v4.1-flash': {"input":0.22,"output":0.66,"cachedInput":0.007},
 	'glm-fast-latest': {"input":2.1,"output":6.6,"cachedInput":0.21}
 };
 
 /** @type {Record<string, ModelInfo>} Capability + Mixpanel lifecycle metadata, read from the gateway. */
 export const MODEL_INFO = {
-	'advisor': {"maxInputTokens":1000000,"maxOutputTokens":128000,"mode":"chat","upstreamModel":"vertex_ai/claude-fable-5-1","directAccess":false,"teamIds":["sales"],"lifecycle":"integration","traits":["advisor"],"guidance":"Stable model name for the Pi Advisor integration; not intended for interactive selection.","spotlight":false,"supportsReasoning":true,"supportsVision":true,"supportsFunctionCalling":true},
-	'executor': {"maxInputTokens":1000000,"maxOutputTokens":128000,"mode":"chat","upstreamModel":"vertex_ai/claude-sonnet-5","directAccess":false,"teamIds":["sales"],"lifecycle":"integration","traits":["executor"],"guidance":"Stable model name for the Pi Advisor executor; not intended for interactive selection.","spotlight":false,"supportsReasoning":true,"supportsVision":true,"supportsFunctionCalling":true},
-	'claude-opus-5': {"maxInputTokens":1000000,"maxOutputTokens":128000,"mode":"chat","upstreamModel":"vertex_ai/claude-opus-5","directAccess":false,"teamIds":["sales"],"lifecycle":"current","traits":["advisor","design"],"guidance":"Use for difficult architecture, design, and review work where quality matters more than cost.","spotlight":false,"supportsReasoning":true,"supportsVision":true,"supportsFunctionCalling":true},
-	'claude-sonnet-5': {"maxInputTokens":1000000,"maxOutputTokens":128000,"mode":"chat","upstreamModel":"vertex_ai/claude-sonnet-5","directAccess":false,"teamIds":["sales"],"lifecycle":"current","traits":["daily-driver"],"guidance":"Recommended default for routine engineering work.","spotlight":false,"supportsReasoning":true,"supportsVision":true,"supportsFunctionCalling":true},
-	'claude-opus-4-7': {"maxInputTokens":1000000,"maxOutputTokens":128000,"mode":"chat","upstreamModel":"vertex_ai/claude-opus-4-7","directAccess":false,"teamIds":["sales"],"lifecycle":"legacy","traits":["advisor","design"],"guidance":"Previous-generation reasoning model; prefer Claude Opus 5 for new work.","spotlight":false,"supportsReasoning":true,"supportsVision":true,"supportsFunctionCalling":true},
-	'claude-haiku-4-5': {"maxInputTokens":200000,"maxOutputTokens":8192,"mode":"chat","upstreamModel":"vertex_ai/claude-haiku-4-5","directAccess":false,"teamIds":["sales"],"lifecycle":"legacy","traits":[],"guidance":"Previous-generation low-cost model; compare with current fast models before choosing it.","spotlight":false,"supportsReasoning":true,"supportsVision":true,"supportsFunctionCalling":true},
-	'claude-fable-5-1': {"maxInputTokens":1000000,"maxOutputTokens":128000,"mode":"chat","upstreamModel":"vertex_ai/claude-fable-5-1","directAccess":false,"teamIds":["sales"],"lifecycle":"current","traits":[],"guidance":"Highest-cost Claude route; use only when its additional capability is worth the price.","spotlight":false,"supportsReasoning":true,"supportsVision":true,"supportsFunctionCalling":true},
-	'claude-fable-5': {"maxInputTokens":1000000,"maxOutputTokens":128000,"mode":"chat","upstreamModel":"vertex_ai/claude-fable-5-1","directAccess":false,"teamIds":["sales"],"lifecycle":"current","traits":[],"guidance":"Compatibility alias for Claude Fable 5.1.","spotlight":false,"supportsReasoning":true,"supportsVision":true,"supportsFunctionCalling":true},
-	'gemini-3.8-flash': {"maxInputTokens":1048576,"maxOutputTokens":65536,"mode":"chat","upstreamModel":"vertex_ai/gemini-3.8-flash","directAccess":false,"teamIds":["sales"],"lifecycle":"current","traits":[],"guidance":"Current low-cost option for quick iteration.","spotlight":true,"supportsReasoning":true,"supportsVision":true,"supportsFunctionCalling":true},
-	'gpt-5.5': {"maxInputTokens":1050000,"maxOutputTokens":128000,"mode":"chat","upstreamModel":"openai/gpt-5.5","directAccess":false,"teamIds":["sales"],"lifecycle":"legacy","traits":[],"guidance":"Previous generation; prefer a GPT 5.6 tier for new work.","spotlight":false,"supportsReasoning":true,"supportsVision":true,"supportsFunctionCalling":true},
-	'gpt-5.6-sol': {"maxInputTokens":922000,"maxOutputTokens":128000,"mode":"chat","upstreamModel":"openai/gpt-5.6-sol","directAccess":false,"teamIds":["sales"],"lifecycle":"current","traits":["advisor","design"],"guidance":"Flagship GPT tier for difficult design and reasoning work.","spotlight":false,"supportsReasoning":true,"supportsVision":true,"supportsFunctionCalling":true},
-	'gpt-5.6-terra': {"maxInputTokens":922000,"maxOutputTokens":128000,"mode":"chat","upstreamModel":"openai/gpt-5.6-terra","directAccess":false,"teamIds":["sales"],"lifecycle":"current","traits":["daily-driver"],"guidance":"Balanced GPT tier for routine engineering work.","spotlight":false,"supportsReasoning":true,"supportsVision":true,"supportsFunctionCalling":true},
-	'gpt-5.6-luna': {"maxInputTokens":922000,"maxOutputTokens":128000,"mode":"chat","upstreamModel":"openai/gpt-5.6-luna","directAccess":false,"teamIds":["sales"],"lifecycle":"current","traits":[],"guidance":"Lowest-cost GPT tier for quick iteration and lightweight tasks.","spotlight":true,"supportsReasoning":true,"supportsVision":true,"supportsFunctionCalling":true},
-	'gpt-6-astra': {"maxInputTokens":922000,"maxOutputTokens":128000,"mode":"chat","upstreamModel":"openai/responses/gpt-6-astra","directAccess":false,"teamIds":["sales"],"lifecycle":"current","traits":["advisor","design"],"guidance":"Highest-cost GPT route for the hardest end-to-end reasoning, coding, and agentic work; prefer a GPT 5.6 tier when its capability is not needed.","spotlight":false,"supportsReasoning":true,"supportsVision":true,"supportsFunctionCalling":true},
-	'glm-5.3': {"maxInputTokens":1048576,"maxOutputTokens":128000,"mode":"chat","upstreamModel":"fireworks_ai/accounts/fireworks/models/glm-5p3","directAccess":false,"teamIds":["sales"],"lifecycle":"current","traits":[],"guidance":"Strong coding and long-horizon candidate with function calling and a million-token context window.","spotlight":false,"supportsReasoning":true,"supportsVision":false,"supportsFunctionCalling":true},
-	'glm-5.3-flash': {"maxInputTokens":1048576,"maxOutputTokens":null,"mode":"chat","upstreamModel":"fireworks_ai/accounts/fireworks/models/glm-5p3-flash","directAccess":false,"teamIds":["sales"],"lifecycle":"current","traits":["multimodal"],"guidance":"Fast, lower-cost GLM 5.3 variant for routine coding, subagents, and quick iteration.","spotlight":false,"supportsReasoning":null,"supportsVision":true,"supportsFunctionCalling":true},
-	'kimi-k3': {"maxInputTokens":1048576,"maxOutputTokens":131072,"mode":"chat","upstreamModel":"fireworks_ai/accounts/fireworks/models/kimi-k3","directAccess":false,"teamIds":["sales"],"lifecycle":"current","traits":["multimodal"],"guidance":"Flagship multimodal reasoning candidate with function calling and a million-token context window.","spotlight":false,"supportsReasoning":true,"supportsVision":true,"supportsFunctionCalling":true},
-	'deepseek-v4-pro': {"maxInputTokens":1048576,"maxOutputTokens":131072,"mode":"chat","upstreamModel":"fireworks_ai/accounts/fireworks/models/deepseek-v4-pro-0813","directAccess":false,"teamIds":["sales"],"lifecycle":"current","traits":[],"guidance":"Pro-tier candidate for difficult text-only coding and reasoning work.","spotlight":false,"supportsReasoning":true,"supportsVision":false,"supportsFunctionCalling":true},
-	'deepseek-v4-flash': {"maxInputTokens":1048576,"maxOutputTokens":131072,"mode":"chat","upstreamModel":"fireworks_ai/accounts/fireworks/models/deepseek-v4-flash-0731","directAccess":false,"teamIds":["sales"],"lifecycle":"current","traits":[],"guidance":"Fast, low-cost option for routine coding, subagents, and quick iteration.","spotlight":false,"supportsReasoning":true,"supportsVision":false,"supportsFunctionCalling":true},
-	'qwen3.8-max': {"maxInputTokens":262144,"maxOutputTokens":null,"mode":"chat","upstreamModel":"fireworks_ai/accounts/fireworks/models/qwen3p8-max","directAccess":false,"teamIds":["sales"],"lifecycle":"current","traits":[],"guidance":"Large reasoning candidate for complex text-only work.","spotlight":false,"supportsReasoning":true,"supportsVision":true,"supportsFunctionCalling":true},
-	'glm-fast-latest': {"maxInputTokens":1048576,"maxOutputTokens":131072,"mode":"chat","upstreamModel":"fireworks_ai/routers/glm-fast-latest","directAccess":false,"teamIds":["sales"],"lifecycle":"current","traits":[],"guidance":"Rolling fast GLM route for text-only agent loops.","spotlight":false,"supportsReasoning":true,"supportsVision":false,"supportsFunctionCalling":true}
+	'advisor': {"maxInputTokens":1000000,"maxOutputTokens":128000,"mode":"chat","upstreamModel":"vertex_ai/claude-fable-5-1","directAccess":true,"teamIds":["sales"],"lifecycle":"integration","traits":["advisor"],"guidance":"Stable model name for the Pi Advisor integration; not intended for interactive selection.","spotlight":false,"supportsReasoning":true,"supportsVision":true,"supportsFunctionCalling":true,"supportsPdfInput":true,"supportsToolChoice":true,"supportsParallelFunctionCalling":null,"supportsResponseSchema":true,"supportsAudioInput":null,"supportsUrlContext":null,"supportsComputerUse":true,"supportsAssistantPrefill":false,"thinkingAlwaysOn":true,"gatewaySaysSupportsWebSearch":null,"gatewaySaysSupportsPromptCaching":true},
+	'executor': {"maxInputTokens":1000000,"maxOutputTokens":128000,"mode":"chat","upstreamModel":"vertex_ai/claude-sonnet-5","directAccess":true,"teamIds":["sales"],"lifecycle":"integration","traits":["executor"],"guidance":"Stable model name for the Pi Advisor executor; not intended for interactive selection.","spotlight":false,"supportsReasoning":true,"supportsVision":true,"supportsFunctionCalling":true,"supportsPdfInput":true,"supportsToolChoice":true,"supportsParallelFunctionCalling":null,"supportsResponseSchema":true,"supportsAudioInput":null,"supportsUrlContext":null,"supportsComputerUse":true,"supportsAssistantPrefill":false,"thinkingAlwaysOn":null,"gatewaySaysSupportsWebSearch":null,"gatewaySaysSupportsPromptCaching":true},
+	'claude-opus-5': {"maxInputTokens":1000000,"maxOutputTokens":128000,"mode":"chat","upstreamModel":"vertex_ai/claude-opus-5","directAccess":true,"teamIds":["sales"],"lifecycle":"current","traits":["advisor","design"],"guidance":"Use for difficult architecture, design, and review work where quality matters more than cost.","spotlight":false,"supportsReasoning":true,"supportsVision":true,"supportsFunctionCalling":true,"supportsPdfInput":true,"supportsToolChoice":true,"supportsParallelFunctionCalling":null,"supportsResponseSchema":true,"supportsAudioInput":null,"supportsUrlContext":null,"supportsComputerUse":true,"supportsAssistantPrefill":false,"thinkingAlwaysOn":null,"gatewaySaysSupportsWebSearch":null,"gatewaySaysSupportsPromptCaching":true},
+	'claude-sonnet-5': {"maxInputTokens":1000000,"maxOutputTokens":128000,"mode":"chat","upstreamModel":"vertex_ai/claude-sonnet-5","directAccess":true,"teamIds":["sales"],"lifecycle":"current","traits":["daily-driver"],"guidance":"Recommended default for routine engineering work.","spotlight":false,"supportsReasoning":true,"supportsVision":true,"supportsFunctionCalling":true,"supportsPdfInput":true,"supportsToolChoice":true,"supportsParallelFunctionCalling":null,"supportsResponseSchema":true,"supportsAudioInput":null,"supportsUrlContext":null,"supportsComputerUse":true,"supportsAssistantPrefill":false,"thinkingAlwaysOn":null,"gatewaySaysSupportsWebSearch":null,"gatewaySaysSupportsPromptCaching":true},
+	'claude-opus-4-7': {"maxInputTokens":1000000,"maxOutputTokens":128000,"mode":"chat","upstreamModel":"vertex_ai/claude-opus-4-7","directAccess":true,"teamIds":["sales"],"lifecycle":"legacy","traits":["advisor","design"],"guidance":"Previous-generation reasoning model; prefer Claude Opus 5 for new work.","spotlight":false,"supportsReasoning":true,"supportsVision":true,"supportsFunctionCalling":true,"supportsPdfInput":true,"supportsToolChoice":true,"supportsParallelFunctionCalling":null,"supportsResponseSchema":true,"supportsAudioInput":null,"supportsUrlContext":null,"supportsComputerUse":true,"supportsAssistantPrefill":false,"thinkingAlwaysOn":null,"gatewaySaysSupportsWebSearch":null,"gatewaySaysSupportsPromptCaching":true},
+	'claude-haiku-4-5': {"maxInputTokens":200000,"maxOutputTokens":64000,"mode":"chat","upstreamModel":"vertex_ai/claude-haiku-4-5","directAccess":true,"teamIds":["sales"],"lifecycle":"legacy","traits":[],"guidance":"Previous-generation low-cost model; compare with current fast models before choosing it.","spotlight":false,"supportsReasoning":true,"supportsVision":true,"supportsFunctionCalling":true,"supportsPdfInput":true,"supportsToolChoice":true,"supportsParallelFunctionCalling":null,"supportsResponseSchema":true,"supportsAudioInput":null,"supportsUrlContext":null,"supportsComputerUse":null,"supportsAssistantPrefill":true,"thinkingAlwaysOn":null,"gatewaySaysSupportsWebSearch":null,"gatewaySaysSupportsPromptCaching":true},
+	'claude-fable-5-1': {"maxInputTokens":1000000,"maxOutputTokens":128000,"mode":"chat","upstreamModel":"vertex_ai/claude-fable-5-1","directAccess":true,"teamIds":["sales"],"lifecycle":"current","traits":[],"guidance":"Highest-cost Claude route; use only when its additional capability is worth the price.","spotlight":false,"supportsReasoning":true,"supportsVision":true,"supportsFunctionCalling":true,"supportsPdfInput":true,"supportsToolChoice":true,"supportsParallelFunctionCalling":null,"supportsResponseSchema":true,"supportsAudioInput":null,"supportsUrlContext":null,"supportsComputerUse":true,"supportsAssistantPrefill":false,"thinkingAlwaysOn":true,"gatewaySaysSupportsWebSearch":null,"gatewaySaysSupportsPromptCaching":true},
+	'claude-fable-5': {"maxInputTokens":1000000,"maxOutputTokens":128000,"mode":"chat","upstreamModel":"vertex_ai/claude-fable-5-1","directAccess":true,"teamIds":["sales"],"lifecycle":"current","traits":[],"guidance":"Compatibility alias for Claude Fable 5.1.","spotlight":false,"supportsReasoning":true,"supportsVision":true,"supportsFunctionCalling":true,"supportsPdfInput":true,"supportsToolChoice":true,"supportsParallelFunctionCalling":null,"supportsResponseSchema":true,"supportsAudioInput":null,"supportsUrlContext":null,"supportsComputerUse":true,"supportsAssistantPrefill":false,"thinkingAlwaysOn":true,"gatewaySaysSupportsWebSearch":null,"gatewaySaysSupportsPromptCaching":true},
+	'gemini-3.8-flash': {"maxInputTokens":1048576,"maxOutputTokens":65536,"mode":"chat","upstreamModel":"vertex_ai/gemini-3.8-flash","directAccess":true,"teamIds":["sales"],"lifecycle":"current","traits":[],"guidance":"Current low-cost option for quick iteration.","spotlight":true,"supportsReasoning":true,"supportsVision":true,"supportsFunctionCalling":true,"supportsPdfInput":true,"supportsToolChoice":true,"supportsParallelFunctionCalling":true,"supportsResponseSchema":true,"supportsAudioInput":true,"supportsUrlContext":true,"supportsComputerUse":null,"supportsAssistantPrefill":null,"thinkingAlwaysOn":null,"gatewaySaysSupportsWebSearch":true,"gatewaySaysSupportsPromptCaching":true},
+	'gpt-5.5': {"maxInputTokens":1050000,"maxOutputTokens":128000,"mode":"chat","upstreamModel":"openai/gpt-5.5","directAccess":true,"teamIds":["sales"],"lifecycle":"legacy","traits":[],"guidance":"Previous generation; prefer a GPT 5.6 tier for new work.","spotlight":false,"supportsReasoning":true,"supportsVision":true,"supportsFunctionCalling":true,"supportsPdfInput":true,"supportsToolChoice":true,"supportsParallelFunctionCalling":true,"supportsResponseSchema":true,"supportsAudioInput":null,"supportsUrlContext":null,"supportsComputerUse":null,"supportsAssistantPrefill":null,"thinkingAlwaysOn":null,"gatewaySaysSupportsWebSearch":true,"gatewaySaysSupportsPromptCaching":true},
+	'gpt-5.6-sol': {"maxInputTokens":922000,"maxOutputTokens":128000,"mode":"chat","upstreamModel":"openai/gpt-5.6-sol","directAccess":true,"teamIds":["sales"],"lifecycle":"current","traits":["advisor","design"],"guidance":"Flagship GPT tier for difficult design and reasoning work.","spotlight":false,"supportsReasoning":true,"supportsVision":true,"supportsFunctionCalling":true,"supportsPdfInput":true,"supportsToolChoice":true,"supportsParallelFunctionCalling":true,"supportsResponseSchema":true,"supportsAudioInput":null,"supportsUrlContext":null,"supportsComputerUse":true,"supportsAssistantPrefill":null,"thinkingAlwaysOn":null,"gatewaySaysSupportsWebSearch":true,"gatewaySaysSupportsPromptCaching":true},
+	'gpt-5.6-terra': {"maxInputTokens":922000,"maxOutputTokens":128000,"mode":"chat","upstreamModel":"openai/gpt-5.6-terra","directAccess":true,"teamIds":["sales"],"lifecycle":"current","traits":["daily-driver"],"guidance":"Balanced GPT tier for routine engineering work.","spotlight":false,"supportsReasoning":true,"supportsVision":true,"supportsFunctionCalling":true,"supportsPdfInput":true,"supportsToolChoice":true,"supportsParallelFunctionCalling":true,"supportsResponseSchema":true,"supportsAudioInput":null,"supportsUrlContext":null,"supportsComputerUse":null,"supportsAssistantPrefill":null,"thinkingAlwaysOn":null,"gatewaySaysSupportsWebSearch":true,"gatewaySaysSupportsPromptCaching":true},
+	'gpt-5.6-luna': {"maxInputTokens":922000,"maxOutputTokens":128000,"mode":"chat","upstreamModel":"openai/gpt-5.6-luna","directAccess":true,"teamIds":["sales"],"lifecycle":"current","traits":[],"guidance":"Lowest-cost GPT tier for quick iteration and lightweight tasks.","spotlight":true,"supportsReasoning":true,"supportsVision":true,"supportsFunctionCalling":true,"supportsPdfInput":true,"supportsToolChoice":true,"supportsParallelFunctionCalling":true,"supportsResponseSchema":true,"supportsAudioInput":null,"supportsUrlContext":null,"supportsComputerUse":null,"supportsAssistantPrefill":null,"thinkingAlwaysOn":null,"gatewaySaysSupportsWebSearch":true,"gatewaySaysSupportsPromptCaching":true},
+	'gpt-6-astra': {"maxInputTokens":922000,"maxOutputTokens":128000,"mode":"chat","upstreamModel":"openai/gpt-6-astra","directAccess":true,"teamIds":["sales"],"lifecycle":"current","traits":["advisor","design"],"guidance":"Highest-cost GPT route for the hardest end-to-end reasoning, coding, and agentic work; prefer a GPT 5.6 tier when its capability is not needed.","spotlight":false,"supportsReasoning":true,"supportsVision":true,"supportsFunctionCalling":true,"supportsPdfInput":true,"supportsToolChoice":true,"supportsParallelFunctionCalling":true,"supportsResponseSchema":true,"supportsAudioInput":null,"supportsUrlContext":null,"supportsComputerUse":true,"supportsAssistantPrefill":null,"thinkingAlwaysOn":null,"gatewaySaysSupportsWebSearch":true,"gatewaySaysSupportsPromptCaching":true},
+	'glm-5.3': {"maxInputTokens":1048576,"maxOutputTokens":128000,"mode":"chat","upstreamModel":"fireworks_ai/accounts/fireworks/models/glm-5p3","directAccess":true,"teamIds":["sales"],"lifecycle":"current","traits":[],"guidance":"Strong coding and long-horizon candidate with function calling and a million-token context window.","spotlight":false,"supportsReasoning":true,"supportsVision":false,"supportsFunctionCalling":true,"supportsPdfInput":null,"supportsToolChoice":true,"supportsParallelFunctionCalling":null,"supportsResponseSchema":true,"supportsAudioInput":null,"supportsUrlContext":null,"supportsComputerUse":null,"supportsAssistantPrefill":null,"thinkingAlwaysOn":null,"gatewaySaysSupportsWebSearch":null,"gatewaySaysSupportsPromptCaching":null},
+	'glm-5.3-flash': {"maxInputTokens":1048576,"maxOutputTokens":null,"mode":"chat","upstreamModel":"fireworks_ai/accounts/fireworks/models/glm-5p3-flash","directAccess":true,"teamIds":["sales"],"lifecycle":"current","traits":["multimodal"],"guidance":"Fast, lower-cost GLM 5.3 variant for routine coding, subagents, and quick iteration.","spotlight":false,"supportsReasoning":null,"supportsVision":true,"supportsFunctionCalling":true,"supportsPdfInput":null,"supportsToolChoice":true,"supportsParallelFunctionCalling":null,"supportsResponseSchema":true,"supportsAudioInput":null,"supportsUrlContext":null,"supportsComputerUse":null,"supportsAssistantPrefill":null,"thinkingAlwaysOn":null,"gatewaySaysSupportsWebSearch":null,"gatewaySaysSupportsPromptCaching":null},
+	'kimi-k3': {"maxInputTokens":1048576,"maxOutputTokens":131072,"mode":"chat","upstreamModel":"fireworks_ai/accounts/fireworks/models/kimi-k3","directAccess":true,"teamIds":["sales"],"lifecycle":"current","traits":["multimodal"],"guidance":"Flagship multimodal reasoning candidate with function calling and a million-token context window.","spotlight":false,"supportsReasoning":true,"supportsVision":true,"supportsFunctionCalling":true,"supportsPdfInput":null,"supportsToolChoice":true,"supportsParallelFunctionCalling":null,"supportsResponseSchema":true,"supportsAudioInput":null,"supportsUrlContext":null,"supportsComputerUse":null,"supportsAssistantPrefill":null,"thinkingAlwaysOn":null,"gatewaySaysSupportsWebSearch":null,"gatewaySaysSupportsPromptCaching":null},
+	'deepseek-v4.1-flash': {"maxInputTokens":1048576,"maxOutputTokens":131072,"mode":"chat","upstreamModel":"fireworks_ai/accounts/fireworks/models/deepseek-v4p1-flash","directAccess":true,"teamIds":["sales"],"lifecycle":"current","traits":[],"guidance":"Fast, low-cost option for routine coding, subagents, and quick iteration.","spotlight":false,"supportsReasoning":true,"supportsVision":true,"supportsFunctionCalling":true,"supportsPdfInput":null,"supportsToolChoice":true,"supportsParallelFunctionCalling":null,"supportsResponseSchema":true,"supportsAudioInput":null,"supportsUrlContext":null,"supportsComputerUse":null,"supportsAssistantPrefill":null,"thinkingAlwaysOn":null,"gatewaySaysSupportsWebSearch":null,"gatewaySaysSupportsPromptCaching":null},
+	'glm-fast-latest': {"maxInputTokens":1048576,"maxOutputTokens":128000,"mode":"chat","upstreamModel":"fireworks_ai/routers/glm-fast-latest","directAccess":true,"teamIds":["sales"],"lifecycle":"current","traits":[],"guidance":"Rolling fast GLM route for text-only agent loops.","spotlight":false,"supportsReasoning":true,"supportsVision":false,"supportsFunctionCalling":true,"supportsPdfInput":null,"supportsToolChoice":true,"supportsParallelFunctionCalling":null,"supportsResponseSchema":true,"supportsAudioInput":null,"supportsUrlContext":null,"supportsComputerUse":null,"supportsAssistantPrefill":null,"thinkingAlwaysOn":null,"gatewaySaysSupportsWebSearch":null,"gatewaySaysSupportsPromptCaching":null}
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -105,7 +102,12 @@ export const MODEL_ALIASES = {
 	'claude-opus-4-5': 'claude-opus-5',
 	'claude-haiku-3-5': 'claude-haiku-4-5',
 	// ak-gpt
-	'gpt-5': 'gpt-5.5'
+	'gpt-5': 'gpt-5.5',
+	// Gateway roster drift, observed 2026-09-11. `deepseek-v4-pro` and
+	// `qwen3.8-max` were withdrawn with no successor, so they are deliberately
+	// absent — they raise "the gateway does not serve model" instead of routing
+	// somewhere the caller did not ask for.
+	'deepseek-v4-flash': 'deepseek-v4.1-flash'
 };
 
 /**
@@ -123,6 +125,26 @@ export const DEFAULT_MODEL = 'claude-sonnet-5';
 
 /** Characters-per-token heuristic used by `estimate()`. The gateway has no token-count endpoint. */
 export const CHARS_PER_TOKEN = 4;
+
+/**
+ * Cache-write cost multiplier over the base input rate, by TTL.
+ *
+ * Verified 2026-09-11 on `claude-sonnet-5` with a 4,808-token block. Both cells
+ * reproduce the gateway's own `x-litellm-response-cost` to the cent:
+ *
+ *   5m: 4808 * ($2/M) * 1.25 + 7 * $2/M + 16 * $10/M = $0.012194  (header $0.012219)
+ *   1h: 4808 * ($2/M) * 2.00 + 7 * $2/M + 16 * $10/M = $0.019406  (header $0.019406)
+ *
+ * @type {Readonly<Record<string, number>>}
+ */
+export const CACHE_WRITE_MULTIPLIER = Object.freeze({ '5m': 1.25, '1h': 2 });
+
+/**
+ * Cache-read discount against the base input rate, used only when a model has
+ * no published `cachedInput` rate. Every model on this gateway publishes one,
+ * and each equals exactly `input * 0.1`.
+ */
+export const CACHE_READ_MULTIPLIER = 0.1;
 
 // ── Alias + lookup ───────────────────────────────────────────────────────────
 
@@ -185,23 +207,29 @@ export function resolvePricing(modelId, opts = {}) {
  * Two call shapes are accepted so that code written against either sibling
  * package keeps working:
  *
- * 1. `computeCost(usage, modelId, { at })`      — the ak-litellm shape
- * 2. `computeCost(modelId, promptTokens, responseTokens, extraA, extraB, opts)`
- *    — the ak-claude / ak-gemini shape. `extraA` is `cacheCreationTokens` in
- *    ak-claude and `thoughtsTokens` in ak-gemini; both bill at a rate this
- *    gateway does not distinguish, so both are treated as output-rate tokens
- *    only when they are ak-gemini's thoughts. See the note below.
+ * 1. `computeCost(usage, modelId, { at, cacheTtl })`  — the ak-litellm shape
+ * 2. `computeCost(modelId, promptTokens, responseTokens, thoughtsTokens,
+ *    cacheReadTokens, opts)` — the ak-claude / ak-gemini positional shape.
  *
- * Cache tokens are always `0` through this gateway (prompt caching does not
- * engage — verified 2026-09-08), so the Anthropic-vs-Google cache accounting
- * divergence does not apply here and is deliberately not ported.
+ * **Cache accounting follows GOOGLE's convention, not Anthropic's.** This
+ * gateway INCLUDES cache tokens inside `prompt_tokens`: a call measured
+ * 2026-09-11 reported `prompt_tokens: 4815` = `text_tokens: 7` +
+ * `cached_tokens: 4808`. So cache buckets are subtracted from `promptTokens`
+ * and re-billed:
+ *
+ * - reads  at `pricing.cachedInput` (every model on this gateway publishes one,
+ *   and each is exactly `input * 0.1`),
+ * - writes at `input * CACHE_WRITE_MULTIPLIER[cacheTtl]` — 1.25x at `5m`, 2x at `1h`.
+ *
+ * ak-claude does the opposite (Anthropic EXCLUDES cache tokens and adds them on
+ * top). Do not unify the two implementations.
  *
  * @param {UsageLike | string | null | undefined} usageOrModelId
  * @param {string | number | null} [modelIdOrPromptTokens]
- * @param {{ at?: Date|string|number } | number} [optsOrResponseTokens]
- * @param {number} [extraA]
- * @param {number} [extraB]
- * @param {{ at?: Date|string|number }} [legacyOpts]
+ * @param {{ at?: Date|string|number, cacheTtl?: CacheTtl } | number} [optsOrResponseTokens]
+ * @param {number} [extraA] positional shape: `thoughtsTokens`
+ * @param {number} [extraB] positional shape: `cacheReadTokens`
+ * @param {{ at?: Date|string|number, cacheTtl?: CacheTtl }} [legacyOpts]
  * @returns {number | null} USD, or `null` when pricing is unknown.
  */
 export function computeCost(usageOrModelId, modelIdOrPromptTokens, optsOrResponseTokens, extraA, extraB, legacyOpts) {
@@ -210,8 +238,13 @@ export function computeCost(usageOrModelId, modelIdOrPromptTokens, optsOrRespons
 	let promptTokens = 0;
 	let responseTokens = 0;
 	let thoughtsTokens = 0;
-	/** @type {{ at?: Date|string|number }} */
+	/** @type {{ at?: Date|string|number, cacheTtl?: CacheTtl }} */
 	let opts = {};
+
+	let cacheReadTokens = 0;
+	let cacheCreationTokens = 0;
+	/** @type {CacheTtl} */
+	let cacheTtl = '5m';
 
 	if (usageOrModelId && typeof usageOrModelId === 'object') {
 		// Shape 1 — computeCost(usage, modelId, opts)
@@ -220,27 +253,44 @@ export function computeCost(usageOrModelId, modelIdOrPromptTokens, optsOrRespons
 		promptTokens = usage.promptTokens || 0;
 		responseTokens = usage.responseTokens || 0;
 		thoughtsTokens = usage.thoughtsTokens || 0;
+		// `cachedTokens` is ak-gemini's name for the same number.
+		cacheReadTokens = usage.cacheReadTokens || usage.cachedTokens || 0;
+		cacheCreationTokens = usage.cacheCreationTokens || 0;
 		opts = /** @type {any} */ (optsOrResponseTokens) || {};
+		if (opts.cacheTtl) cacheTtl = opts.cacheTtl;
 	}
 	else {
-		// Shape 2 — computeCost(modelId, in, out, extraA, extraB, opts)
+		// Shape 2 — computeCost(modelId, in, out, thoughts, cacheRead, opts)
 		modelId = /** @type {string | null} */ (usageOrModelId) ?? null;
 		promptTokens = Number(modelIdOrPromptTokens) || 0;
 		responseTokens = Number(optsOrResponseTokens) || 0;
-		// ak-gemini passes thoughtsTokens third; ak-claude passes cacheCreationTokens.
-		// Cache tokens are always 0 on this gateway, so a non-zero value can only
-		// have come from ak-gemini's thoughts. Billing it at the output rate is
-		// correct for that case and a no-op for ak-claude's.
 		thoughtsTokens = Number(extraA) || 0;
+		cacheReadTokens = Number(extraB) || 0;
 		opts = legacyOpts || {};
+		if (opts.cacheTtl) cacheTtl = opts.cacheTtl;
 	}
 
 	const pricing = resolvePricing(modelId, opts);
 	if (!pricing) return null;
 
-	const inputCost = (promptTokens / 1e6) * pricing.input;
+	// THIS GATEWAY INCLUDES CACHE TOKENS IN `prompt_tokens`.
+	//
+	// Verified 2026-09-11 on claude-sonnet-5: a cached call reported
+	// prompt_tokens 4815 = text_tokens 7 + cached_tokens 4808. That is Google's
+	// convention. ak-claude does the opposite (Anthropic EXCLUDES cache tokens
+	// and adds them on top) — do not copy its math here.
+	//
+	// So: subtract the cache tokens out, then re-bill each bucket at its own rate.
+	const billableInput = Math.max(0, promptTokens - cacheReadTokens - cacheCreationTokens);
+	const readRate = pricing.cachedInput ?? pricing.input * CACHE_READ_MULTIPLIER;
+	const writeRate = pricing.input * (CACHE_WRITE_MULTIPLIER[cacheTtl] ?? CACHE_WRITE_MULTIPLIER['5m']);
+
+	const inputCost = (billableInput / 1e6) * pricing.input;
+	const readCost = (cacheReadTokens / 1e6) * readRate;
+	const writeCost = (cacheCreationTokens / 1e6) * writeRate;
 	const outputCost = ((responseTokens + thoughtsTokens) / 1e6) * pricing.output;
-	return inputCost + outputCost;
+
+	return inputCost + readCost + writeCost + outputCost;
 }
 
 /**
@@ -347,7 +397,21 @@ export function buildTablesFromModelInfo(body) {
 			spotlight: mi.mixpanel?.spotlight ?? false,
 			supportsReasoning: mi.supports_reasoning ?? null,
 			supportsVision: mi.supports_vision ?? null,
-			supportsFunctionCalling: mi.supports_function_calling ?? null
+			supportsFunctionCalling: mi.supports_function_calling ?? null,
+			supportsPdfInput: mi.supports_pdf_input ?? null,
+			supportsToolChoice: mi.supports_tool_choice ?? null,
+			supportsParallelFunctionCalling: mi.supports_parallel_function_calling ?? null,
+			supportsResponseSchema: mi.supports_response_schema ?? null,
+			supportsAudioInput: mi.supports_audio_input ?? null,
+			supportsUrlContext: mi.supports_url_context ?? null,
+			supportsComputerUse: mi.supports_computer_use ?? null,
+			supportsAssistantPrefill: mi.supports_assistant_prefill ?? null,
+			thinkingAlwaysOn: mi.thinking_always_on ?? null,
+			// NOTE: `supports_web_search` and `supports_prompt_caching` are also
+			// present on the wire and are deliberately NOT copied here. Both are
+			// wrong on this gateway — see WEB_SEARCH_STYLE and CACHE_CAPABLE_MODELS.
+			gatewaySaysSupportsWebSearch: mi.supports_web_search ?? null,
+			gatewaySaysSupportsPromptCaching: mi.supports_prompt_caching ?? null
 		};
 	}
 

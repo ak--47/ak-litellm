@@ -1,5 +1,121 @@
 # Changelog
 
+## 0.2.0 — 2026-09-11
+
+The batteries-included pass. Prompt caching became real when the gateway key was
+upgraded, and a capability audit found four more live features 0.1.0 never used.
+
+**Minor** bump: everything is additive, both drop-in proof scripts still pass
+unmodified, and no signature changed. But `estimatedCost` moves — downward, and
+by a lot — on any workload with a repeated prefix.
+
+### The headline: prompt caching works
+
+0.1.0 documented prompt caching as blocked upstream. That was true on
+2026-09-08 and is false now. Measured on a 4,808-token prefix:
+
+| Model | Write | Read | Saving |
+|---|---|---|---|
+| `claude-fable-5-1` | $0.0611 | $0.0021 | **29.2x** |
+| `claude-opus-5` | $0.0305 | $0.0028 | **10.7x** |
+| `claude-opus-4-7` | $0.0306 | $0.0029 | **10.6x** |
+| `claude-sonnet-5` | $0.0122 | $0.0011 | **10.7x** |
+
+**It is on by default.** `cacheSystemPrompt`, `cacheContext` (RagAgent's
+document block) and `cacheExamples` (Transformer's few-shot prefix) all default
+to `'auto'`: cache when the model supports it and the block clears ~1,024
+tokens, silently decline otherwise. `cacheTtl: '5m' | '1h'` works; `1h` writes
+at 2x the input rate instead of 1.25x.
+
+Two things this release gets right that are easy to get wrong:
+
+- **`model_info.supports_prompt_caching` is wrong** — it claims `true` for
+  `claude-haiku-4-5`, `gemini-3.8-flash` and every `gpt-*`, none of which cache.
+  `capabilities.CACHE_CAPABLE_MODELS` is a measured list and overrides it.
+- **This gateway INCLUDES cache tokens in `prompt_tokens`** (Google's
+  convention, not Anthropic's). `computeCost()` subtracts them out and re-bills
+  each bucket at its own rate. All three cases reproduce the gateway's own
+  `x-litellm-response-cost` header to the cent.
+
+### Added
+
+- **Web search on all three vendors.** One `enableWebSearch` option now covers
+  the Anthropic server tool, Gemini `{ googleSearch: {} }`, and OpenAI
+  `{ type: 'web_search' }`. 0.1.0 claimed search was Anthropic-only; wrong.
+  `usage.webSearchRequests` counts searches, which providers bill separately
+  from tokens and which are **not** in `estimatedCost`. A grounded call with
+  `maxTokens` under 1,024 is raised, because a low cap returns empty content.
+- **`/v1/responses` transport.** OpenAI web search is a hard 400 on chat
+  completions, so `transport: 'auto'` switches route for that one case.
+  `responses.js` adapts at both edges; callers see the same response shape.
+  New `transport: 'chat' | 'responses' | 'auto'` option.
+- **Assistant prefill.** `prefill: '['` makes the reply start as JSON with no
+  schema round-trip. Three measured behaviours — `continue`, `restart`,
+  `reject` — handled separately, because concatenating on a `restart` model
+  produces corrupt output. `result.continuation` holds the raw output.
+- **Capability layer.** `getCapabilities()`, `contextWindow()`,
+  `supportsVision/Pdf/Tools/Reasoning()`, `supportsPromptCaching()`,
+  `prefillMode()`, `webSearchStyle()`. `ToolAgent` now throws at construction on
+  a model with no function calling; `RagAgent` skips a PDF or image the model
+  cannot read instead of letting the provider 400 after the upload.
+- **Context-window awareness.** `estimate()` returns `contextWindow`, `fits`
+  and `headroom`. New `contextGuard: 'throw' | 'warn' | 'off'` (default
+  `'warn'`, because the estimate is a heuristic and a false positive must not
+  block a valid call).
+- **`npm run probe-capabilities`.** Re-derives the whole capability matrix
+  against the live gateway and diffs it against the committed snapshot. Free by
+  default; `-- --paid` also re-measures caching and prefill. This is how the
+  next drift gets caught.
+- **`examples/`** — seven runnable recipes, each under 40 lines, each printing
+  what it cost. All seven verified end to end.
+
+### Changed
+
+- **Model roster refreshed.** `deepseek-v4-pro` and `qwen3.8-max` were withdrawn
+  from the gateway and returned 400; `deepseek-v4-flash` became
+  `deepseek-v4.1-flash`. `listModels()` was offering three dead ids.
+  `deepseek-v4-flash` now aliases to its successor. `MODEL_PRICING_AS_OF` is
+  `2026-09-11`.
+- **`MODEL_INFO` carries ten more capability fields**, plus the two flags this
+  package deliberately distrusts, named `gatewaySaysSupportsWebSearch` and
+  `gatewaySaysSupportsPromptCaching` so nobody reads them by accident.
+- **`apiKey` is now non-enumerable** on every instance. Still readable as
+  `this.apiKey`, but no longer appears in `Object.keys()` or a `JSON.stringify`
+  of the instance.
+- **`cacheTtl` throws on a value other than `'5m'` or `'1h'`.** Silently
+  coercing would either overcharge 2x or disable the cache.
+
+### Fixed
+
+- `computeCost()` ignored cache tokens entirely, which was harmless when they
+  were always zero and is a 10x error now.
+
+### Docs
+
+README, GUIDE and AGENTS.md rewritten wherever they described caching or web
+search — both were documented as impossible. New GUIDE sections for the two
+transports, prefill modes, and capability gating.
+
+### Testing
+
+- Unit: **153 tests**, still fully offline. New `capabilities.test.js` pins the
+  caching gate, the exact cost arithmetic, all three prefill modes, and the
+  Responses adapters.
+- Live: **24 tests**, `$0.14` a run against a `$0.50` ceiling. New assertions
+  that a cache read costs materially less than a write, that `claude-haiku-4-5`
+  does **not** cache, that Gemini grounding reports `web_search_requests > 0`,
+  and that OpenAI web search completes over `/v1/responses`.
+- Both drop-in proof scripts pass unmodified — the 0.1.0 contract is intact.
+
+### Still unavailable
+
+`BatchTransformer` is exported and throws. `/v1/batches` works, but
+`POST /v1/files` returns `files_settings is not set`, so a job has no input
+file. That is one line of gateway config, not a wrapper change. Embeddings,
+image generation and `AgentQuery` remain impossible: all 19 gateway models are
+`mode: chat`. Spend introspection is 403 — the key is scoped to
+`llm_api_routes`.
+
 ## 0.1.0 — 2026-09-08
 
 Initial release.

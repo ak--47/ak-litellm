@@ -24,6 +24,8 @@ If a gateway behavior surprises you, check the "Things that will bite you" secti
 | `compat.js` | 564 | The drop-in alias layer. `normalizeOptions()` plus the helpers it uses. |
 | `models.js` | 382 | Generated pricing table, model info, aliases, `resolvePricing`, `computeCost`. |
 | `client.js` | 231 | Transport. Client construction, header parsing, error mapping, health check. |
+| `capabilities.js` | ~330 | What each model can do. Measured lists that override two wrong gateway flags. |
+| `responses.js` | ~135 | The `/v1/responses` adapter, for OpenAI web search only. |
 | `unsupported.js` | 62 | `Embedding`, `ImageGenerator`, `AgentQuery` — constructors throw. |
 | `transformer.js` | 443 | JSON transformation with few-shot, validation, retry. |
 | `chat.js` | 109 | Multi-turn text. |
@@ -55,7 +57,7 @@ BaseLiteLLM  (also exported as BaseClaude and BaseGemini)
 
 ### Key design decisions
 
-1. **One transport: `POST /v1/chat/completions`.** No `/v1/messages`, no `/v1/responses`. Every model, one protocol.
+1. **Chat completions is the default transport, `/v1/responses` is the exception.** Only OpenAI web search needs the second route, because its tool does not exist on the first. `responses.js` adapts at both edges so nothing between them changes.
 2. **The `openai` npm SDK is the HTTP client**, pointed at the gateway. Not raw `fetch`. It brings SSE parsing, retry with backoff, timeouts, and `.withResponse()` — which is the only way to read the cost header.
 3. **`compat.js` is idempotent.** `normalizeOptions()` runs in subclass constructors *and* in the base constructor. Running it twice must not double-warn or double-translate.
 4. **Warnings, never throws, never silence.** An option the gateway cannot honor warns once per process and is ignored. The only two suppressors are `logLevel: 'none'` and `AK_LITELLM_SILENCE_COMPAT=1`.
@@ -84,9 +86,27 @@ The probe results (2026-09-08):
 
 The reasoning row is why `_applySamplingParams()` runs **after** `_applyReasoningParams()` and passes `{ reasoning: !!params.reasoning_effort }` to `samplingSupport()`. Do not reorder them.
 
-### Prompt caching does not work
+### Prompt caching works — but only on four models, and the gateway's flag lies
 
-`cache_control` is accepted and ignored upstream. Cache token counts are always zero. `cacheSystemPrompt` and `cacheTtl` warn. Do not add a cache implementation — it is blocked upstream, not missing here.
+Changed 2026-09-11 when the key was upgraded. It is now the largest cost lever
+in the package: **10x to 29x** on a repeated prefix.
+
+Caches: `claude-sonnet-5`, `claude-opus-5`, `claude-opus-4-7`, `claude-fable-5-1`
+(plus `advisor` / `executor`, which route to them).
+Does **not** cache: `claude-haiku-4-5`, `gemini-3.8-flash`, every `gpt-*`.
+
+Two traps:
+
+1. **`model_info.supports_prompt_caching` is WRONG.** It reports `true` for all
+   six non-caching models. Gate on `capabilities.CACHE_CAPABLE_MODELS`, which is
+   measured. Never on the flag, never on a `/^claude-/` prefix — haiku breaks both.
+2. **Cache tokens are INCLUDED in `prompt_tokens` here** (Google's convention).
+   `computeCost()` subtracts them out and re-bills each bucket. ak-claude does
+   the opposite and adds them on top. **Do not unify the two implementations.**
+
+Size floor is ~1024 tokens; below it `cache_control` is accepted and does
+nothing. `'auto'` is silent when it declines — that is deliberate, a no-op is
+not a caller mistake.
 
 ### No cost header on streams
 
@@ -95,6 +115,21 @@ The reasoning row is why `_applySamplingParams()` runs **after** `_applyReasonin
 ### Anthropic reserves the reasoning budget out of `max_tokens`
 
 `maxTokens: 64` with `effort: 'high'` is a 400. `client.mapGatewayError()` catches `thinking.budget_tokens` and explains it. It deliberately does **not** raise `maxTokens` — that would override an explicit caller setting and guess at LiteLLM's effort-to-budget mapping.
+
+### Web search is NOT Anthropic-only
+
+0.1.0 said it was. Wrong. All three vendors search, in three shapes:
+Anthropic `web_search_20250305` and Google `{ googleSearch: {} }` on chat
+completions; OpenAI `{ type: 'web_search' }` on **`/v1/responses` only** — it is
+a hard 400 on chat completions. `capabilities.webSearchStyle()` owns the mapping
+and `base._useResponsesTransport()` owns the route switch.
+
+### Assistant prefill has three behaviours, not two
+
+`continue` (prepend your prefix), `restart` (200 but the model re-emits it — do
+NOT prepend), `reject` (400). `capabilities.PREFILL_MODES` is the measured
+table. Concatenating on a `restart` model yields `["red",["red","blue"]`.
+Unknown models default to `restart`, the safe middle.
 
 ### Google tool-call ids carry a `thought_signature`
 
@@ -156,6 +191,8 @@ npm run build:cjs        # esbuild → index.cjs
 npm test                 # unit suite, offline, no spend
 npm run test:live        # LITELLM_LIVE=1, real spend, under a cent
 npm run refresh-pricing  # regenerate the models.js table from GET /model/info
+npm run probe-capabilities          # free: roster + routes drift check
+npm run probe-capabilities -- --paid # also re-measures caching and prefill
 node cli.js --models     # list every model with rates and capability flags
 ```
 
@@ -187,14 +224,15 @@ Plain `npx jest` fails on ESM.
 
 ## Testing strategy
 
-**Unit (`tests/unit/`, 117 tests, default `npm test`).** Fully offline. `_harness.js` mocks the `openai` module with `jest.unstable_mockModule`, so no code path can reach the network. Import the harness statically, then `await setup()` to dynamic-import `index.js`.
+**Unit (`tests/unit/`, 153 tests, default `npm test`).** Fully offline. `_harness.js` mocks the `openai` module with `jest.unstable_mockModule`, so no code path can reach the network. Import the harness statically, then `await setup()` to dynamic-import `index.js`.
 
 - `compat.test.js` — the alias layer, warn-once semantics, gating tables
 - `pricing.test.js` — table completeness, aliases, intro windows, `computeCost`
 - `request-shape.test.js` — what actually goes on the wire
 - `consumer-fixes.test.js` — the regression suites ported from `ak-claude` and `ak-gemini`
+- `capabilities.test.js` — caching gate and cost math, prefill modes, gating, transports
 
-**Live (`tests/live/`, 16 tests).** Gated on `LITELLM_LIVE=1`. Uses `claude-haiku-4-5` with low caps, tracks its own spend, prints the total, and asserts it stayed under $0.50. Every gateway limitation in this file has a test there, so gateway drift breaks a test rather than a consumer's app.
+**Live (`tests/live/`, 24 tests).** Gated on `LITELLM_LIVE=1`. Uses `claude-haiku-4-5` with low caps, tracks its own spend, prints the total, and asserts it stayed under $0.50. Every gateway limitation in this file has a test there, so gateway drift breaks a test rather than a consumer's app.
 
 **Drop-in proofs.** `scratch-dropin-claude.mjs` and `scratch-dropin-gemini.mjs` are sibling-package application code with one changed import each. Run them after any change to `compat.js`, `base.js` or a class constructor. They throw on the first missing field rather than logging a soft warning.
 
@@ -204,6 +242,10 @@ Plain `npx jest` fails on ESM.
 
 1. Check whether `ak-claude` or `ak-gemini` already has it, and match their names and result shapes.
 2. If the gateway cannot support it, add it to the accepted-and-ignored table in `compat.js` with a reason. Do not throw.
+2b. **Measure, do not trust `/model/info`.** Two of its flags are already known
+   wrong. If a new feature depends on a capability flag, probe it live across
+   the model families first and add the result to `capabilities.js` with the
+   date and the numbers.
 3. If it needs a provider-specific parameter, probe the model families live before shipping. `drop_params` is off.
 4. Add a unit test. Add a live test if it depends on gateway behavior.
 5. Run `npm run typecheck`, `npm test`, and both drop-in scripts.

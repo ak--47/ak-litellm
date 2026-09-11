@@ -26,7 +26,8 @@ import {
 	normalizeOptions,
 	normalizeToolChoice,
 	normalizeToolDeclarations,
-	samplingSupport
+	samplingSupport,
+	warnOnce
 } from './compat.js';
 import {
 	createClient,
@@ -48,6 +49,19 @@ import {
 	getModelInfo,
 	resolvePricing
 } from './models.js';
+import {
+	CACHE_MIN_TOKENS,
+	getCapabilities,
+	prefillMode,
+	supportsPromptCaching,
+	webSearchStyle,
+	WEB_SEARCH_MIN_MAX_TOKENS
+} from './capabilities.js';
+import {
+	fromResponsesReply,
+	needsResponsesTransport,
+	toResponsesRequest
+} from './responses.js';
 import { isJSON } from './json-helpers.js';
 import log from './logger.js';
 
@@ -98,7 +112,17 @@ class BaseLiteLLM {
 		// ── Auth / transport ──
 		// resolveApiKey() throws here rather than at first send, matching
 		// ak-claude's fail-at-construction behavior.
-		this.apiKey = resolveApiKey(o.apiKey);
+		/**
+		 * Gateway bearer key. Declared here for the type-checker; assigned below
+		 * via defineProperty so it stays non-enumerable.
+		 * @type {string}
+		 */
+		this.apiKey;
+		// Non-enumerable so the key never reaches a log line, a JSON.stringify of
+		// the instance, or a structured-clone. Still readable as `this.apiKey`.
+		Object.defineProperty(this, 'apiKey', {
+			value: resolveApiKey(o.apiKey), enumerable: false, configurable: true, writable: true
+		});
 		this.baseURL = resolveBaseURL(o.baseURL);
 		this.timeout = o.timeout;
 
@@ -118,6 +142,28 @@ class BaseLiteLLM {
 		// ── Web search (Anthropic server tool; claude-* only) ──
 		this.enableWebSearch = o.enableWebSearch ?? false;
 		this.webSearchConfig = o.webSearchConfig ?? {};
+
+		// ── Assistant prefill ──
+		// A trailing `{ role: 'assistant' }` message the model continues from.
+		// Three behaviors across the gateway — see capabilities.prefillMode().
+		this.prefill = o.prefill ?? null;
+
+		// ── Transport ──
+		// 'auto' uses /v1/chat/completions for everything except OpenAI web
+		// search, which does not exist on that route. See responses.js.
+		this.transport = o.transport ?? 'auto';
+
+		// ── Context-window guard ──
+		this.contextGuard = o.contextGuard ?? 'warn';
+
+		// ── Prompt caching ──
+		// Real since the gateway key upgrade of 2026-09-11. `'auto'` is the
+		// default: cache when the model supports it AND the block clears
+		// CACHE_MIN_TOKENS. See capabilities.js for the measured model list.
+		this.cacheSystemPrompt = o.cacheSystemPrompt ?? 'auto';
+		this.cacheTtl = o.cacheTtl ?? '5m';
+		this.cacheContext = o.cacheContext ?? 'auto';
+		this.cacheExamples = o.cacheExamples ?? 'auto';
 
 		// ── Request metadata (ak-gemini `labels`) ──
 		this.labels = o.labels ?? null;
@@ -223,7 +269,69 @@ class BaseLiteLLM {
 	 */
 	_buildSystemMessage() {
 		if (!this.systemPrompt) return undefined;
-		return { role: 'system', content: this.systemPrompt };
+		if (!this._shouldCache(this.cacheSystemPrompt, this.systemPrompt)) {
+			return { role: 'system', content: this.systemPrompt };
+		}
+		// Anthropic's block-array form is the only shape that carries
+		// `cache_control`. A plain string cannot be marked.
+		return {
+			role: 'system',
+			content: [{
+				type: 'text',
+				text: this.systemPrompt,
+				cache_control: { type: 'ephemeral', ttl: this.cacheTtl }
+			}]
+		};
+	}
+
+	/**
+	 * Decides whether one block is worth marking with `cache_control`.
+	 *
+	 * `'auto'` (the default) is silent when it declines — caching a block on a
+	 * model that cannot cache is a no-op, not a mistake the caller made, so it
+	 * must not produce a warning. An explicit `true` on a model that cannot cache
+	 * IS something the caller got wrong, so that warns once.
+	 *
+	 * @param {boolean|'auto'} setting  `cacheSystemPrompt` / `cacheContext` / `cacheExamples`
+	 * @param {string} text             the block that would be cached
+	 * @param {string} [modelName]
+	 * @returns {boolean}
+	 * @protected
+	 */
+	_shouldCache(setting, text, modelName = this.modelName) {
+		if (setting === false || !text) return false;
+
+		const modelCan = supportsPromptCaching(modelName);
+		const bigEnough = text.length / CHARS_PER_TOKEN >= CACHE_MIN_TOKENS;
+
+		if (setting === true) {
+			if (!modelCan) {
+				warnOnce(
+					'cacheSystemPrompt:model',
+					`[ak-litellm] ${this.constructor.name}: prompt caching is on but ` +
+					`'${modelName}' does not cache. Verified 2026-09-11 — claude-haiku-4-5, ` +
+					`gemini-* and gpt-* accept cache_control and ignore it. Caching models: ` +
+					`claude-sonnet-5, claude-opus-5, claude-opus-4-7, claude-fable-5-1.`,
+					this._silentCompat
+				);
+				return false;
+			}
+			if (!bigEnough) {
+				warnOnce(
+					'cacheSystemPrompt:size',
+					`[ak-litellm] ${this.constructor.name}: prompt caching is on but the block ` +
+					`is roughly ${Math.round(text.length / CHARS_PER_TOKEN)} tokens, below the ` +
+					`${CACHE_MIN_TOKENS}-token minimum. Anthropic accepts cache_control below ` +
+					`that and does nothing with it.`,
+					this._silentCompat
+				);
+				return false;
+			}
+			return true;
+		}
+
+		// 'auto' — no warning either way.
+		return modelCan && bigEnough;
 	}
 
 	/**
@@ -322,6 +430,7 @@ class BaseLiteLLM {
 	 * @param {string} [opts.model]
 	 * @param {boolean} [opts.stream]
 	 * @param {Record<string, string>} [opts.labels] ak-gemini per-message billing labels
+	 * @param {string|null} [opts.prefill] trailing assistant turn to continue from
 	 * @returns {any}
 	 * @protected
 	 */
@@ -332,13 +441,33 @@ class BaseLiteLLM {
 			: this._buildSystemMessage();
 		const body = opts.messages ?? this.history;
 
-		/** @type {any} */
-		const params = {
-			model,
-			messages: systemMessage ? [systemMessage, ...body] : [...body]
-		};
+		// A prefill is a trailing `{ role: 'assistant' }` turn the model continues
+		// from. `reject` models 400 on it, so it is dropped there with one warning.
+		const prefill = opts.prefill !== undefined ? opts.prefill : this.prefill;
+		const messages = systemMessage ? [systemMessage, ...body] : [...body];
+		if (prefill && this._prefillUsable(prefill, model)) {
+			messages.push({ role: 'assistant', content: prefill });
+		}
 
-		const maxTokens = opts.maxTokens ?? this.maxTokens;
+		/** @type {any} */
+		const params = { model, messages };
+
+		let maxTokens = opts.maxTokens ?? this.maxTokens;
+		// A grounded answer spends reasoning tokens BEFORE it emits any text. At
+		// max_tokens 64 a Gemini search came back with `content: null`, which
+		// looks like a failure but is a truncation. Raise the floor and say so.
+		if (this.enableWebSearch && webSearchStyle(model)
+			&& maxTokens !== null && maxTokens !== undefined
+			&& maxTokens < WEB_SEARCH_MIN_MAX_TOKENS) {
+			warnOnce(
+				'webSearch:maxTokens',
+				`[ak-litellm] ${this.constructor.name}: raising \`maxTokens\` from ${maxTokens} ` +
+				`to ${WEB_SEARCH_MIN_MAX_TOKENS} for this web-search call. A grounded reply ` +
+				`spends reasoning tokens before any text, and a low cap returns empty content.`,
+				this._silentCompat
+			);
+			maxTokens = WEB_SEARCH_MIN_MAX_TOKENS;
+		}
 		if (maxTokens !== null && maxTokens !== undefined) params.max_tokens = maxTokens;
 
 		const tools = this._buildTools(opts.tools, model);
@@ -475,6 +604,7 @@ class BaseLiteLLM {
 	 * @protected
 	 */
 	async _call(params) {
+		if (this._useResponsesTransport(params.model)) return this._callResponses(params);
 		try {
 			const { data, response: httpResponse } =
 				await this.client.chat.completions.create(params).withResponse();
@@ -482,6 +612,72 @@ class BaseLiteLLM {
 			// Non-enumerable so JSON.stringify(response) stays clean.
 			Object.defineProperty(data, '_gatewayHeaders', {
 				value: headers, enumerable: false, configurable: true, writable: true
+			});
+			return data;
+		} catch (err) {
+			throw mapGatewayError(err, { model: params?.model });
+		}
+	}
+
+	/**
+	 * Whether this request must use `/v1/responses` instead of chat completions.
+	 *
+	 * @param {string} [modelName]
+	 * @returns {boolean}
+	 * @protected
+	 */
+	_useResponsesTransport(modelName = this.modelName) {
+		return needsResponsesTransport(this.transport, webSearchStyle(modelName), !!this.enableWebSearch);
+	}
+
+	/**
+	 * Round-trip over `/v1/responses`, adapted to look like a chat completion.
+	 *
+	 * The `openai` SDK's own `responses.create()` is not used: LiteLLM returns a
+	 * superset of fields the SDK's parser drops, including the `web_search_call`
+	 * items this transport exists to surface. A plain fetch keeps all of it, and
+	 * the headers still come back for the cost figure.
+	 *
+	 * @param {any} params a chat-completions body
+	 * @returns {Promise<any>} a chat-completions-shaped reply
+	 * @protected
+	 */
+	async _callResponses(params) {
+		if (params.tools?.some((/** @type {any} */ t) => t?.type === 'function')) {
+			throw new Error(
+				'ak-litellm: function calling is not supported over the /v1/responses ' +
+				'transport. Either drop `enableWebSearch` so the call uses ' +
+				'/v1/chat/completions, or use a claude-* / gemini-* model, whose web ' +
+				'search works there.'
+			);
+		}
+
+		const body = toResponsesRequest({
+			...params,
+			tools: [...(params.tools || []), { type: 'web_search' }]
+		});
+
+		try {
+			const res = await fetch(`${this.baseURL}/responses`, {
+				method: 'POST',
+				headers: {
+					Authorization: `Bearer ${this.apiKey}`,
+					'Content-Type': 'application/json'
+				},
+				body: JSON.stringify(body)
+			});
+
+			const json = await res.json();
+			if (!res.ok) {
+				throw mapGatewayError(
+					Object.assign(new Error(json?.error?.message || `HTTP ${res.status}`), { status: res.status }),
+					{ model: params?.model }
+				);
+			}
+
+			const data = fromResponsesReply(json);
+			Object.defineProperty(data, '_gatewayHeaders', {
+				value: parseGatewayHeaders(res), enumerable: false, configurable: true, writable: true
 			});
 			return data;
 		} catch (err) {
@@ -549,6 +745,59 @@ class BaseLiteLLM {
 	 * @returns {string}
 	 * @protected
 	 */
+	/**
+	 * Whether a prefill should actually be put on the wire for this model.
+	 *
+	 * `reject` models return 400 `This model does not support...`, so sending one
+	 * would break a call that would otherwise succeed. That is a real mistake by
+	 * the caller, so it warns once rather than failing silently.
+	 *
+	 * @param {string} prefill
+	 * @param {string} [modelName]
+	 * @returns {boolean}
+	 * @protected
+	 */
+	_prefillUsable(prefill, modelName = this.modelName) {
+		if (!prefill) return false;
+		const mode = prefillMode(modelName);
+		if (mode === 'reject') {
+			warnOnce(
+				'prefill:model',
+				`[ak-litellm] ${this.constructor.name}: \`prefill\` is ignored on ` +
+				`'${modelName}' — it returns 400 for a trailing assistant message. ` +
+				`Measured 2026-09-11: claude-haiku-4-5, gpt-6-astra and the glm-* models ` +
+				`continue from a prefill; claude-sonnet-5, claude-opus-*, claude-fable-* ` +
+				`and gemini-* reject it.`,
+				this._silentCompat
+			);
+			return false;
+		}
+		return true;
+	}
+
+	/**
+	 * Puts a prefilled reply back together.
+	 *
+	 * Only a `continue` model needs its prefix prepended. A `restart` model
+	 * re-emits the prefix itself, so concatenating there would produce corrupt
+	 * output like `["red",["red","blue"]`.
+	 *
+	 * @param {string} text     raw model output
+	 * @param {string|null} prefill
+	 * @param {string} [modelName]
+	 * @returns {{ text: string, continuation: string }}
+	 * @protected
+	 */
+	_applyPrefill(text, prefill, modelName = this.modelName) {
+		if (!prefill || !this._prefillUsable(prefill, modelName)) {
+			return { text, continuation: text };
+		}
+		const mode = prefillMode(modelName);
+		return mode === 'continue'
+			? { text: prefill + text, continuation: text }
+			: { text, continuation: text };
+	}
+
 	_extractText(response) {
 		const content = response?.choices?.[0]?.message?.content;
 		if (typeof content === 'string') return content;
@@ -677,7 +926,7 @@ class BaseLiteLLM {
 	/**
 	 * Reads the token counts out of a chat-completions `usage` block.
 	 * @param {any} response
-	 * @returns {{promptTokens:number, responseTokens:number, totalTokens:number, thoughtsTokens:number, cacheCreationTokens:number, cacheReadTokens:number}}
+	 * @returns {{promptTokens:number, responseTokens:number, totalTokens:number, thoughtsTokens:number, cacheCreationTokens:number, cacheReadTokens:number, webSearchRequests:number}}
 	 * @protected
 	 */
 	_readUsage(response) {
@@ -693,7 +942,10 @@ class BaseLiteLLM {
 			// (verified 2026-09-08). Read anyway, so the numbers become real the
 			// day the gateway starts honoring cache_control.
 			cacheCreationTokens: u.prompt_tokens_details?.cache_creation_tokens || 0,
-			cacheReadTokens: u.prompt_tokens_details?.cached_tokens || 0
+			cacheReadTokens: u.prompt_tokens_details?.cached_tokens || 0,
+			// Providers bill searches separately from tokens, so this is the only
+			// signal that a grounded turn cost more than its token count implies.
+			webSearchRequests: u.prompt_tokens_details?.web_search_requests || 0
 		};
 	}
 
@@ -738,6 +990,7 @@ class BaseLiteLLM {
 			thoughtsTokens: 0,
 			cacheCreationTokens: 0,
 			cacheReadTokens: 0,
+			webSearchRequests: 0,
 			totalTokens: 0,
 			attempts: 0,
 			/** Summed `x-litellm-response-cost`. Valid only while gatewayCostComplete. */
@@ -785,6 +1038,7 @@ class BaseLiteLLM {
 		c.thoughtsTokens += meta.thoughtsTokens || 0;
 		c.cacheCreationTokens += meta.cacheCreationTokens || 0;
 		c.cacheReadTokens += meta.cacheReadTokens || 0;
+		c.webSearchRequests += meta.webSearchRequests || 0;
 		c.totalTokens += meta.totalTokens || 0;
 		c.attempts += 1;
 
@@ -824,13 +1078,15 @@ class BaseLiteLLM {
 		const thoughtsTokens = useCumulative ? c.thoughtsTokens : meta.thoughtsTokens;
 		const cacheCreationTokens = useCumulative ? c.cacheCreationTokens : meta.cacheCreationTokens;
 		const cacheReadTokens = useCumulative ? c.cacheReadTokens : meta.cacheReadTokens;
+		const webSearchRequests = useCumulative ? c.webSearchRequests : (meta.webSearchRequests || 0);
 
 		const gatewayCost = useCumulative
 			? (c.gatewayCostComplete ? c.gatewayCost : null)
 			: meta.gatewayCost;
 
 		const { estimatedCost, costSource } = this._resolveCost(
-			gatewayCost, meta.modelVersion, promptTokens, responseTokens, thoughtsTokens
+			gatewayCost, meta.modelVersion, promptTokens, responseTokens, thoughtsTokens,
+			cacheReadTokens, cacheCreationTokens
 		);
 
 		return {
@@ -841,6 +1097,7 @@ class BaseLiteLLM {
 			cacheCreationTokens,
 			cacheReadTokens,
 			cachedTokens: cacheReadTokens,
+			webSearchRequests,
 			attempts: useCumulative ? c.attempts : 1,
 			modelVersion: meta.modelVersion,
 			requestedModel: meta.requestedModel,
@@ -869,13 +1126,18 @@ class BaseLiteLLM {
 	 * @returns {{ estimatedCost: number|null, costSource: 'gateway'|'estimated'|null }}
 	 * @protected
 	 */
-	_resolveCost(gatewayCost, modelVersion, promptTokens, responseTokens, thoughtsTokens = 0) {
+	_resolveCost(gatewayCost, modelVersion, promptTokens, responseTokens, thoughtsTokens = 0,
+		cacheReadTokens = 0, cacheCreationTokens = 0) {
 		if (gatewayCost !== null && gatewayCost !== undefined) {
 			return { estimatedCost: gatewayCost, costSource: 'gateway' };
 		}
-		const usage = { promptTokens, responseTokens, thoughtsTokens };
+		// `promptTokens` INCLUDES the two cache buckets on this gateway, so
+		// computeCost() subtracts them out and re-bills each at its own rate.
+		// `cacheTtl` sets the write multiplier (1.25x at 5m, 2x at 1h).
+		const usage = { promptTokens, responseTokens, thoughtsTokens, cacheReadTokens, cacheCreationTokens };
+		const opts = { cacheTtl: this.cacheTtl };
 		const estimated =
-			computeCost(usage, modelVersion) ?? computeCost(usage, this.modelName);
+			computeCost(usage, modelVersion, opts) ?? computeCost(usage, this.modelName, opts);
 		return estimated === null || estimated === undefined
 			? { estimatedCost: null, costSource: null }
 			: { estimatedCost: estimated, costSource: 'estimated' };
@@ -896,12 +1158,14 @@ class BaseLiteLLM {
 		const h = response?._gatewayHeaders || null;
 		const modelVersion = response?.model || null;
 		const { estimatedCost, costSource } = this._resolveCost(
-			h?.responseCost ?? null, modelVersion, t.promptTokens, t.responseTokens, t.thoughtsTokens
+			h?.responseCost ?? null, modelVersion, t.promptTokens, t.responseTokens, t.thoughtsTokens,
+			t.cacheReadTokens, t.cacheCreationTokens
 		);
 
 		return {
 			...t,
 			cachedTokens: t.cacheReadTokens,
+			webSearchRequests: t.webSearchRequests || 0,
 			attempts,
 			modelVersion,
 			requestedModel: this.modelName,
@@ -928,7 +1192,7 @@ class BaseLiteLLM {
 	 * non-Latin scripts and code. Budget accordingly.
 	 *
 	 * @param {Object|string} nextPayload
-	 * @returns {Promise<{ inputTokens: number, approximate: true }>}
+	 * @returns {Promise<{ inputTokens: number, approximate: true, contextWindow: number|null, fits: boolean, headroom: number }>}
 	 */
 	async estimate(nextPayload) {
 		if (!this._initialized) await this.init();
@@ -956,15 +1220,17 @@ class BaseLiteLLM {
 
 		const inputTokens = Math.ceil(chars / CHARS_PER_TOKEN);
 
-		const limit = getModelInfo(this.modelName)?.maxInputTokens;
-		if (limit && inputTokens > limit) {
+		const contextWindow = getModelInfo(this.modelName)?.maxInputTokens ?? null;
+		const fits = contextWindow === null ? true : inputTokens <= contextWindow;
+		const headroom = contextWindow === null ? Infinity : contextWindow - inputTokens;
+		if (!fits) {
 			log.warn(
 				`ak-litellm: estimated ${inputTokens} input tokens exceeds the ` +
-				`${limit}-token context window of "${this.modelName}".`
+				`${contextWindow}-token context window of "${this.modelName}".`
 			);
 		}
 
-		return { inputTokens, approximate: /** @type {true} */ (true) };
+		return { inputTokens, approximate: /** @type {true} */ (true), contextWindow, fits, headroom };
 	}
 
 	/**

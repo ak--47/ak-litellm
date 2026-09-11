@@ -64,7 +64,11 @@ class Chat extends BaseLiteLLM {
 		const response = await this._sendMessage(message, opts);
 		this._accumulateUsage(response, response._gatewayHeaders);
 
-		return { text: this._extractText(response), usage: this.getLastUsage() };
+		const prefill = opts.prefill !== undefined ? opts.prefill : this.prefill;
+		const { text, continuation } = this._applyPrefill(this._extractText(response), prefill);
+		return prefill
+			? { text, continuation, usage: this.getLastUsage() }
+			: { text, usage: this.getLastUsage() };
 	}
 
 	/**

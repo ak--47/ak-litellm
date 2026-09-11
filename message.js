@@ -125,7 +125,12 @@ class Message extends BaseLiteLLM {
 
 		let userContent = payloadStr;
 		let text = '';
+		let continuation = '';
 		let data;
+		// Resolved once: a `reject` model drops the prefill, and then there is
+		// nothing to reassemble either.
+		const requested = opts.prefill !== undefined ? opts.prefill : this.prefill;
+		const prefillUsed = requested && this._prefillUsable(requested) ? requested : null;
 		/** @type {string[]|null} */
 		let validationErrors = null;
 		/** @type {any} */
@@ -155,6 +160,13 @@ class Message extends BaseLiteLLM {
 			if (cost === null) gatewayCostComplete = false; else gatewayCost += cost;
 
 			text = this._extractText(response);
+			// A `continue` model returns only what follows the prefill; put the
+			// caller's prefix back so `prefill: '['` yields parseable JSON.
+			if (prefillUsed) {
+				const applied = this._applyPrefill(text, prefillUsed);
+				text = applied.text;
+				continuation = applied.continuation;
+			}
 
 			if (!this._isStructured) { data = undefined; break; }
 
@@ -200,12 +212,15 @@ class Message extends BaseLiteLLM {
 			cacheReadTokens: 0,
 			attempts,
 			gatewayCost,
-			gatewayCostComplete
+			gatewayCostComplete,
+			webSearchRequests: this._readUsage(lastResponse).webSearchRequests
 		};
 
 		const { estimatedCost, costSource } = this._resolveCost(
 			gatewayCostComplete ? gatewayCost : null,
-			lastResponse?.model, cumPrompt, cumResponse, cumThoughts
+			lastResponse?.model, cumPrompt, cumResponse, cumThoughts,
+			this._readUsage(lastResponse).cacheReadTokens,
+			this._readUsage(lastResponse).cacheCreationTokens
 		);
 
 		const usage = {
@@ -222,6 +237,8 @@ class Message extends BaseLiteLLM {
 		const result = { text, usage };
 		if (this._isStructured) result.data = data;
 		if (validationErrors) result.validationErrors = validationErrors;
+		// Raw model output, before the prefill prefix was put back on.
+		if (prefillUsed) result.continuation = continuation;
 
 		return result;
 	}

@@ -19,6 +19,7 @@ import { readFile } from 'node:fs/promises';
 
 import BaseLiteLLM from './base.js';
 import { normalizeOptions, warnOnce } from './compat.js';
+import { getCapabilities } from './capabilities.js';
 import log from './logger.js';
 
 /** @type {Record<string, string>} */
@@ -155,7 +156,21 @@ class RagAgent extends BaseLiteLLM {
 			const buffer = await readFile(resolvedPath);
 			const base64 = buffer.toString('base64');
 
-			if (mimeType.startsWith('image/')) {
+			// Gate on what the model can actually read. Sending a PDF to a model
+			// without `supports_pdf_input` is a provider 400 after the upload
+			// cost — cheaper and clearer to skip it here and say why.
+			const cap = getCapabilities(this.modelName);
+			if (mimeType.startsWith('image/') && !cap.vision) {
+				log.warn(
+					`RagAgent: "${basename(resolvedPath)}" skipped — '${this.modelName}' ` +
+					`cannot read images. Use a vision model such as claude-sonnet-5 or gemini-3.8-flash.`
+				);
+			} else if (mimeType === 'application/pdf' && !cap.pdf) {
+				log.warn(
+					`RagAgent: "${basename(resolvedPath)}" skipped — '${this.modelName}' ` +
+					`cannot read PDFs. Convert it to text, or use a model with PDF input.`
+				);
+			} else if (mimeType.startsWith('image/')) {
 				this._mediaContentBlocks.push({
 					type: 'image_url',
 					image_url: { url: `data:${mimeType};base64,${base64}` }
@@ -190,6 +205,20 @@ class RagAgent extends BaseLiteLLM {
 
 		if (contentParts.length > 0) {
 			contentParts.push({ type: 'text', text: 'Here are the documents and data to analyze.' });
+
+			// The document block is the largest fixed prefix in the whole package
+			// and it is resent on every question, so caching it is where RagAgent
+			// saves the most. `cache_control` goes on the LAST part: Anthropic
+			// caches everything up to and including the marked block.
+			const cacheableText = contentParts
+				.filter(p => p.type === 'text')
+				.map(p => p.text).join('');
+			if (this._shouldCache(this.cacheContext, cacheableText)) {
+				contentParts[contentParts.length - 1] = {
+					...contentParts[contentParts.length - 1],
+					cache_control: { type: 'ephemeral', ttl: this.cacheTtl }
+				};
+			}
 
 			this.history = [
 				{ role: 'user', content: contentParts },

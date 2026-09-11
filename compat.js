@@ -97,7 +97,7 @@ const IGNORED = {
  * and it costs the caller real money, so the warning says so.
  * @type {string[]}
  */
-const INERT_CACHE_OPTIONS = ['cacheSystemPrompt', 'cacheTtl'];
+const INERT_CACHE_OPTIONS = [];
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Model families — §6.4 and §6.5 parameter gating
@@ -207,7 +207,11 @@ export function supportsTopK(modelId) {
  * @returns {boolean}
  */
 export function supportsWebSearch(modelId) {
-	return modelProvider(modelId) === 'anthropic';
+	// Anthropic, Google AND OpenAI can all search — verified 2026-09-11. The
+	// tool SHAPE differs per provider, and OpenAI additionally needs the
+	// /v1/responses transport. capabilities.webSearchStyle() owns that mapping.
+	const p = modelProvider(modelId);
+	return p === 'anthropic' || p === 'google' || p === 'openai';
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -333,19 +337,43 @@ export function normalizeToolDeclarations(tools, klass) {
  * @returns {any | null}
  */
 export function buildWebSearchTool(config, modelId, klass, silent = false) {
-	if (!supportsWebSearch(modelId)) {
+	const provider = modelProvider(modelId);
+	const cfg = config || {};
+
+	if (provider !== 'anthropic' && provider !== 'google' && provider !== 'openai') {
 		warnOnce(
 			'enableWebSearch:model',
-			`[ak-litellm] ${klass}: \`enableWebSearch\` is ignored on '${modelId}' — web ` +
-			`search on this gateway is the Anthropic server tool, which only claude-* models ` +
-			`accept. Use a claude-* model to enable it.`,
+			`[ak-litellm] ${klass}: \`enableWebSearch\` is ignored on '${modelId}' — no ` +
+			`web-search tool exists for it on this gateway. Anthropic, Gemini and GPT ` +
+			`models can search; the Fireworks-hosted models (glm-*, kimi-*, deepseek-*) ` +
+			`cannot.`,
 			silent
 		);
 		return null;
 	}
 
-	const cfg = config || {};
-	// ak-gemini's groundingConfig vocabulary.
+	// OpenAI's `{ type: 'web_search' }` is a hard 400 on /v1/chat/completions:
+	// "Supported values are: 'function' and 'custom'". It only exists on
+	// /v1/responses, so base.js switches transport instead of adding a tool here.
+	if (provider === 'openai') return null;
+
+	if (provider === 'google') {
+		// Gemini takes its own shape and ignores every config knob. Verified
+		// working 2026-09-11; usage comes back with `web_search_requests`.
+		for (const dropped of ['max_uses', 'allowed_domains', 'blocked_domains', 'excludeDomains', 'searchTypes', 'timeRangeFilter']) {
+			if (cfg[dropped] !== undefined) {
+				warnOnce(
+					`googleSearch.${dropped}`,
+					`[ak-litellm] ${klass}: \`webSearchConfig.${dropped}\` is ignored on a ` +
+					`Gemini model — the googleSearch tool takes no configuration.`,
+					silent
+				);
+			}
+		}
+		return { googleSearch: {} };
+	}
+
+	// Anthropic server tool — the only shape that accepts configuration.
 	const blocked = cfg.blocked_domains ?? cfg.excludeDomains;
 	for (const dropped of ['searchTypes', 'timeRangeFilter']) {
 		if (cfg[dropped] !== undefined) {
@@ -540,14 +568,28 @@ export function normalizeOptions(raw = {}, klass = 'ak-litellm') {
 	}
 	for (const opt of INERT_CACHE_OPTIONS) {
 		if (o[opt] === undefined) continue;
-		warnOnce(
-			opt,
-			`[ak-litellm] ${klass}: \`${opt}\` is accepted but inert — prompt caching does ` +
-			`not engage through the Mixpanel gateway (verified 2026-09-08). You will be billed ` +
-			`full input price on every call.`,
-			silent
-		);
+		warnOnce(opt, `[ak-litellm] ${klass}: \`${opt}\` is accepted but inert.`, silent);
 		delete o[opt];
+	}
+
+	// ── 5b. Prompt caching — real since the 2026-09-11 gateway key upgrade ────
+	// `cacheSystemPrompt` is tri-state. 'auto' (the default) caches when the
+	// model can and the block is big enough; the guard lives in base.js because
+	// it needs the resolved model id and the prompt itself.
+	if (o.cacheSystemPrompt === undefined) o.cacheSystemPrompt = 'auto';
+	else if (o.cacheSystemPrompt !== 'auto') o.cacheSystemPrompt = !!o.cacheSystemPrompt;
+
+	if (o.cacheTtl === undefined) o.cacheTtl = '5m';
+	else if (o.cacheTtl !== '5m' && o.cacheTtl !== '1h') {
+		throw new Error(
+			`ak-litellm: \`cacheTtl\` must be '5m' or '1h', got ${JSON.stringify(o.cacheTtl)}. ` +
+			`Those are the only two windows Anthropic's cache_control accepts.`
+		);
+	}
+
+	for (const opt of ['cacheContext', 'cacheExamples']) {
+		if (o[opt] === undefined) o[opt] = 'auto';
+		else if (o[opt] !== 'auto') o[opt] = !!o[opt];
 	}
 
 	// ── 6. Model id ───────────────────────────────────────────────────────────

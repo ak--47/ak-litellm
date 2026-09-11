@@ -59,4 +59,29 @@ export class AgentQuery {
 	}
 }
 
-export default { Embedding, ImageGenerator, AgentQuery };
+/**
+ * Bulk JSON transformation over the OpenAI Batch API, at roughly half price.
+ *
+ * **Blocked by gateway configuration, not by design.** Probed 2026-09-11:
+ *
+ * - `POST /v1/batches` works — it accepts a job and returns `status: validating`.
+ * - `POST /v1/files` returns `500 files_settings is not set, set it on your
+ *   config.yaml file`.
+ *
+ * A batch job takes its work from an uploaded JSONL file, so with no file
+ * upload there is no batch. The fix is one line of gateway config; nothing in
+ * this package needs to change. Re-check with `npm run probe-capabilities`.
+ */
+export class BatchTransformer {
+	constructor() {
+		throw new Error(
+			'ak-litellm: batch is unavailable on this gateway. `POST /v1/files` returns ' +
+			'"files_settings is not set". The /v1/batches route itself works, so this is ' +
+			'a gateway config change, not a wrapper change — ask the LiteLLM operator to ' +
+			'set `files_settings` in config.yaml. Verify with `npm run probe-capabilities`. ' +
+			'Until then, use Transformer with concurrent send() calls.'
+		);
+	}
+}
+
+export default { Embedding, ImageGenerator, AgentQuery, BatchTransformer };

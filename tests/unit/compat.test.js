@@ -125,15 +125,40 @@ describe('§6.3 accepted-and-ignored options', () => {
 		expect(warnSpy.mock.calls.length).toBeGreaterThanOrEqual(8);
 	});
 
-	it('says prompt caching is inert and costs money', () => {
-		normalizeOptions({ cacheSystemPrompt: true });
-		expect(warnSpy.mock.calls[0][0]).toMatch(/prompt caching does not engage/);
-		expect(warnSpy.mock.calls[0][0]).toMatch(/full input price/);
+	it('logLevel: none suppresses every compat warning', () => {
+		normalizeOptions({ vertexai: true, safetySettings: [], logLevel: 'none' });
+		expect(warnSpy).not.toHaveBeenCalled();
+	});
+});
+
+describe('prompt caching options', () => {
+	// Caching became real on 2026-09-11 when the gateway key was upgraded.
+	// Before that these two options were accepted-and-warned. They are now live,
+	// so passing them must NOT warn.
+	it('defaults every cache switch to auto and the ttl to 5m', () => {
+		const o = normalizeOptions({});
+		expect(o.cacheSystemPrompt).toBe('auto');
+		expect(o.cacheContext).toBe('auto');
+		expect(o.cacheExamples).toBe('auto');
+		expect(o.cacheTtl).toBe('5m');
 	});
 
-	it('logLevel: none suppresses every compat warning', () => {
-		normalizeOptions({ vertexai: true, cacheSystemPrompt: true, logLevel: 'none' });
+	it('keeps cacheSystemPrompt and cacheTtl instead of dropping them', () => {
+		const o = normalizeOptions({ cacheSystemPrompt: true, cacheTtl: '1h' });
+		expect(o.cacheSystemPrompt).toBe(true);
+		expect(o.cacheTtl).toBe('1h');
 		expect(warnSpy).not.toHaveBeenCalled();
+	});
+
+	it('coerces a truthy cacheSystemPrompt to a real boolean', () => {
+		expect(normalizeOptions({ cacheSystemPrompt: 1 }).cacheSystemPrompt).toBe(true);
+		expect(normalizeOptions({ cacheSystemPrompt: 0 }).cacheSystemPrompt).toBe(false);
+	});
+
+	it('throws on a ttl Anthropic does not accept', () => {
+		// Only '5m' and '1h' exist. Silently coercing would overcharge 2x or
+		// silently disable the cache, so this is one of the few hard throws.
+		expect(() => normalizeOptions({ cacheTtl: '10m' })).toThrow(/must be '5m' or '1h'/);
 	});
 });
 
@@ -224,10 +249,28 @@ describe('§6.5 sampling-parameter gating (probed 2026-09-08)', () => {
 });
 
 describe('§6.4 web search', () => {
-	it('is Anthropic-only on this gateway', () => {
+	// Verified 2026-09-11: all three vendors can search, in three different
+	// shapes. Only the Fireworks-hosted open models cannot.
+	it('covers Anthropic, Google and OpenAI but not the open models', () => {
 		expect(supportsWebSearch('claude-sonnet-5')).toBe(true);
-		expect(supportsWebSearch('gemini-3.8-flash')).toBe(false);
-		expect(supportsWebSearch('gpt-5.5')).toBe(false);
+		expect(supportsWebSearch('gemini-3.8-flash')).toBe(true);
+		expect(supportsWebSearch('gpt-5.5')).toBe(true);
+		expect(supportsWebSearch('kimi-k3')).toBe(false);
+		expect(supportsWebSearch('deepseek-v4.1-flash')).toBe(false);
+	});
+
+	it('emits the googleSearch shape for Gemini', () => {
+		expect(buildWebSearchTool({}, 'gemini-3.8-flash', 'Chat')).toEqual({ googleSearch: {} });
+	});
+
+	it('warns that Gemini ignores every webSearchConfig knob', () => {
+		buildWebSearchTool({ max_uses: 3 }, 'gemini-3.8-flash', 'Chat');
+		expect(warnSpy.mock.calls.map(c => c[0]).join('\n')).toMatch(/googleSearch tool takes no configuration/);
+	});
+
+	it('emits no chat-completions tool for OpenAI, which needs /v1/responses', () => {
+		// `{ type: 'web_search' }` is a hard 400 on /v1/chat/completions.
+		expect(buildWebSearchTool({}, 'gpt-5.5', 'Chat')).toBeNull();
 	});
 
 	it('builds the Anthropic server tool and maps ak-gemini vocabulary', () => {
@@ -244,9 +287,9 @@ describe('§6.4 web search', () => {
 		});
 	});
 
-	it('returns null and warns on a non-Claude model', () => {
-		expect(buildWebSearchTool({}, 'gemini-3.8-flash', 'Chat')).toBeNull();
-		expect(warnSpy.mock.calls[0][0]).toMatch(/only claude-\* models accept/);
+	it('returns null and warns on a model with no search tool at all', () => {
+		expect(buildWebSearchTool({}, 'kimi-k3', 'Chat')).toBeNull();
+		expect(warnSpy.mock.calls[0][0]).toMatch(/no\s+web-search tool exists/);
 	});
 
 	it('warns about groundingConfig keys with no equivalent', () => {

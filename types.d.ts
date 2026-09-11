@@ -14,6 +14,27 @@
  */
 export type EffortLevel = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
+/**
+ * Anthropic prompt-cache lifetime. These are the only two windows
+ * `cache_control` accepts. `'1h'` costs 2x the base input rate to write,
+ * `'5m'` costs 1.25x; reads cost the same either way.
+ */
+export type CacheTtl = '5m' | '1h';
+
+/**
+ * Tri-state cache switch. `'auto'` — the default — caches when the model
+ * supports it and the block clears `CACHE_MIN_TOKENS`, and is silent when it
+ * declines. `true` forces it on and warns when that cannot work. `false` never
+ * caches.
+ */
+export type CacheSetting = boolean | 'auto';
+
+/** How a model reacts to a trailing `{ role: 'assistant' }` prefill message. */
+export type PrefillMode = 'continue' | 'restart' | 'reject';
+
+/** Which web-search tool shape a model accepts, or `null` when it cannot search. */
+export type WebSearchStyle = 'anthropic' | 'google' | 'openai' | null;
+
 /** ak-gemini's `thinkingConfig.thinkingLevel` values. */
 export type ThinkingLevelValue = 'MINIMAL' | 'LOW' | 'MEDIUM' | 'HIGH' | 'THINKING_LEVEL_UNSPECIFIED';
 
@@ -100,6 +121,15 @@ export interface ResponseMetadata {
 }
 
 export interface UsageData {
+  /**
+   * How many web searches the provider ran for this turn, from
+   * `prompt_tokens_details.web_search_requests`.
+   *
+   * Providers bill searches SEPARATELY from tokens (Anthropic charges roughly
+   * $10 per thousand), and that charge is **not** included in `estimatedCost`.
+   * A non-zero value here means the real cost is above the token math.
+   */
+  webSearchRequests?: number;
   /** CUMULATIVE input tokens across every API round-trip in the turn */
   promptTokens: number;
   /** CUMULATIVE output tokens across every API round-trip in the turn */
@@ -152,6 +182,82 @@ export type LogLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal' |
 // ── Constructor Options ──────────────────────────────────────────────────────
 
 export interface BaseLiteLLMOptions {
+  /**
+   * Cache the system prompt so repeat calls reuse it.
+   *
+   * `'auto'` (default) caches when the model supports it AND the block clears
+   * {@link CACHE_MIN_TOKENS}, and stays silent when it declines. `true` forces
+   * it and warns when that cannot work. `false` never caches.
+   *
+   * Measured 2026-09-11: caching works on `claude-sonnet-5`, `claude-opus-5`,
+   * `claude-opus-4-7` and `claude-fable-5-1` — 10x to 29x cheaper on a repeat
+   * prefix. It does NOT work on `claude-haiku-4-5`, `gemini-*` or `gpt-*`,
+   * whatever the gateway's own `supports_prompt_caching` flag claims.
+   *
+   * @default 'auto'
+   * @example
+   * // 9.5x cheaper from the second call onward, no other code change
+   * new Chat({ modelName: 'claude-sonnet-5', systemPrompt: BIG_PROMPT });
+   */
+  cacheSystemPrompt?: CacheSetting;
+
+  /**
+   * Cache lifetime. `'1h'` costs 2x the input rate to write, `'5m'` costs
+   * 1.25x; reads cost the same. Use `'1h'` when the same prefix is reused for
+   * longer than five minutes.
+   * @default '5m'
+   */
+  cacheTtl?: CacheTtl;
+
+  /**
+   * `RagAgent` only — cache the injected document block. That block is usually
+   * far larger than the system prompt and is resent with every question, so
+   * this is where RagAgent saves the most.
+   * @default 'auto'
+   */
+  cacheContext?: CacheSetting;
+
+  /**
+   * `Transformer` only — cache the seeded few-shot examples, which are byte
+   * identical on every `send()`.
+   * @default 'auto'
+   */
+  cacheExamples?: CacheSetting;
+
+  /**
+   * Text to put in the model's mouth. Sent as a trailing
+   * `{ role: 'assistant' }` turn that the model continues from.
+   *
+   * The cheapest way to force a shape: `prefill: '['` makes the reply start as
+   * a JSON array, with no schema round-trip.
+   *
+   * Behaviour differs by model, and this package handles all three cases —
+   * see {@link PrefillMode}. On a `continue` model the returned `text` is
+   * `prefill + continuation`; on `restart` it is the model's own full reply; on
+   * `reject` the prefill is dropped with one warning and the call still works.
+   */
+  prefill?: string | null;
+
+  /**
+   * Which HTTP route to use.
+   *
+   * `'auto'` (default) uses `/v1/chat/completions` for everything except OpenAI
+   * web search, which only exists on `/v1/responses`. `'chat'` and `'responses'`
+   * force one route. Function calling and structured output are chat-only.
+   * @default 'auto'
+   */
+  transport?: 'chat' | 'responses' | 'auto';
+
+  /**
+   * What to do when the estimated input exceeds the model's context window.
+   *
+   * `'warn'` (default) logs once and sends anyway, because the estimate is a
+   * 4-chars-per-token heuristic and a false positive must not block a valid
+   * call. `'throw'` fails locally before spending. `'off'` disables the check.
+   * @default 'warn'
+   */
+  contextGuard?: 'throw' | 'warn' | 'off';
+
   /** Model id as the gateway names it (default: 'claude-sonnet-5') */
   modelName?: string;
   /** System prompt (null or false to disable) */
@@ -484,6 +590,12 @@ export interface SendOptions {
 // ── Response Types ───────────────────────────────────────────────────────────
 
 export interface ChatResponse {
+  /**
+   * Raw model output, present only when `prefill` was used. On a `continue`
+   * model `text` is `prefill + continuation`; on a `restart` model the model
+   * re-emits the prefix itself, so `text` and `continuation` are equal.
+   */
+  continuation?: string;
   text: string;
   usage: UsageData | null;
 }
@@ -496,6 +608,12 @@ export interface ChatStreamEvent {
 }
 
 export interface MessageResponse {
+  /**
+   * Raw model output, present only when `prefill` was used. On a `continue`
+   * model `text` is `prefill + continuation`; on a `restart` model the model
+   * re-emits the prefix itself, so `text` and `continuation` are equal.
+   */
+  continuation?: string;
   text: string;
   data?: any;
   usage: UsageData | null;
@@ -627,7 +745,21 @@ export declare class BaseLiteLLM {
   clearHistory(): Promise<void>;
   getLastUsage(): UsageData | null;
   /** Heuristic (chars / 4) — the gateway exposes no token counter. */
-  estimate(nextPayload: Record<string, unknown> | string): Promise<{ inputTokens: number; approximate: true }>;
+  /**
+   * Approximate input size for the next call, plus how it sits against the
+   * model's context window. No API call — the gateway has no token-count route,
+   * so this is a 4-chars-per-token heuristic.
+   */
+  estimate(nextPayload: Record<string, unknown> | string): Promise<{
+    inputTokens: number;
+    approximate: true;
+    /** Model context window in tokens, or null when the model is not in the snapshot. */
+    contextWindow: number | null;
+    /** False when the estimate exceeds the window. */
+    fits: boolean;
+    /** Tokens left before the window is full; Infinity when unknown. */
+    headroom: number;
+  }>;
   estimateCost(nextPayload: Record<string, unknown> | string): Promise<{
     inputTokens: number;
     model: string;
@@ -800,7 +932,7 @@ export declare function resolvePricing(
 export declare function computeCost(
   usageOrModelId: UsageLike | string | null | undefined,
   modelIdOrPromptTokens?: string | number | null,
-  optsOrResponseTokens?: { at?: Date | string | number } | number,
+  optsOrResponseTokens?: { at?: Date | string | number; cacheTtl?: CacheTtl } | number,
   extraA?: number,
   extraB?: number,
   legacyOpts?: { at?: Date | string | number; cacheTtl?: CacheTtl }
@@ -841,3 +973,99 @@ declare const _default: {
 };
 
 export default _default;
+
+
+// ── Capability layer ─────────────────────────────────────────────────────────
+
+/** Everything this package knows about what a model accepts. */
+export interface ModelCapabilities {
+  /** Resolved model id, aliases followed. */
+  id: string;
+  /** False when the id is not in the committed gateway snapshot. */
+  known: boolean;
+  /** Context window in tokens. */
+  maxInputTokens: number | null;
+  maxOutputTokens: number | null;
+  vision: boolean;
+  pdf: boolean;
+  audio: boolean;
+  tools: boolean;
+  toolChoice: boolean;
+  parallelTools: boolean;
+  reasoning: boolean;
+  thinkingAlwaysOn: boolean;
+  responseSchema: boolean;
+  /** MEASURED, not the gateway's `supports_prompt_caching` flag, which is wrong. */
+  promptCaching: boolean;
+  /** Which web-search tool shape this model takes, or null. */
+  webSearch: WebSearchStyle;
+  computerUse: boolean;
+  urlContext: boolean;
+  /** What the gateway actually calls upstream, e.g. `vertex_ai/claude-sonnet-5`. */
+  upstreamModel: string | null;
+}
+
+/**
+ * Looks up what a model can do. An unknown id returns a permissive record with
+ * `known: false`, so a newly added model is never blocked locally.
+ */
+export declare function getCapabilities(modelId?: string): ModelCapabilities;
+
+/** Context window in tokens, or null when the model is not in the snapshot. */
+export declare function contextWindow(modelId?: string): number | null;
+
+export declare function supportsVision(modelId?: string): boolean;
+export declare function supportsPdf(modelId?: string): boolean;
+export declare function supportsTools(modelId?: string): boolean;
+export declare function supportsReasoning(modelId?: string): boolean;
+
+/** Whether `cache_control` actually engages. Measured, not reported. */
+export declare function supportsPromptCaching(modelId?: string): boolean;
+
+/** Whether a prefill is worth sending — true for `continue` and `restart`. */
+export declare function supportsPrefill(modelId?: string): boolean;
+
+/** How this model reacts to a trailing assistant message. */
+export declare function prefillMode(modelId?: string): PrefillMode;
+
+/** Which web-search tool shape this model takes, or null. */
+export declare function webSearchStyle(modelId?: string): WebSearchStyle;
+
+/** Models measured to actually cache. */
+export declare const CACHE_CAPABLE_MODELS: readonly string[];
+/** Smallest block Anthropic will cache; below this `cache_control` is a no-op. */
+export declare const CACHE_MIN_TOKENS: number;
+/** Cache-write multiplier over the input rate, by TTL: 1.25x at 5m, 2x at 1h. */
+export declare const CACHE_WRITE_MULTIPLIER: Readonly<Record<string, number>>;
+/** Cache-read discount against the input rate. */
+export declare const CACHE_READ_MULTIPLIER: number;
+/** Measured prefill behaviour per model. */
+export declare const PREFILL_MODES: Readonly<Record<string, PrefillMode>>;
+/** Minimum `max_tokens` for a grounded call; a low cap returns empty content. */
+export declare const WEB_SEARCH_MIN_MAX_TOKENS: number;
+
+// ── /v1/responses transport ──────────────────────────────────────────────────
+
+/** Chat-completions request body to a `/v1/responses` body. */
+export declare function toResponsesRequest(params: any): any;
+/** `/v1/responses` reply to a chat-completions-shaped reply. */
+export declare function fromResponsesReply(resp: any): any;
+/** Whether a request has to go over `/v1/responses`. Only OpenAI web search does. */
+export declare function needsResponsesTransport(
+  transport: 'chat' | 'responses' | 'auto',
+  searchStyle: WebSearchStyle,
+  webSearchEnabled: boolean
+): boolean;
+
+// ── Unavailable on this gateway ──────────────────────────────────────────────
+
+/**
+ * Bulk transformation over the Batch API. Constructor THROWS.
+ *
+ * `/v1/batches` works, but `POST /v1/files` returns `files_settings is not
+ * set`, so there is no way to submit a job. Fixable with one line of gateway
+ * config; check with `npm run probe-capabilities`.
+ */
+export declare class BatchTransformer {
+  constructor(options?: Record<string, any>);
+}
