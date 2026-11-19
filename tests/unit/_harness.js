@@ -43,7 +43,7 @@ export const mock = {
 	streams: [],
 	/** Ids reported by `client.models.list()`. */
 	modelIds: [...DEFAULT_MODEL_IDS],
-	/** Set to an Error to make the NEXT create() reject. */
+	/** Set to an Error to make the NEXT create() reject, or an array of Errors to reject that many in a row. */
 	/** @type {any} */
 	failNext: null,
 
@@ -226,7 +226,13 @@ class MockOpenAI {
 	_create(params) {
 		mock.requests.push(params);
 
-		if (mock.failNext) {
+		if (Array.isArray(mock.failNext) && mock.failNext.length) {
+			// An array fails that many requests in a row, in order.
+			const err = mock.failNext.shift();
+			if (!mock.failNext.length) mock.failNext = null;
+			return apiPromise(Promise.reject(err), {});
+		}
+		if (mock.failNext && !Array.isArray(mock.failNext)) {
 			const err = mock.failNext;
 			mock.failNext = null;
 			return apiPromise(Promise.reject(err), {});

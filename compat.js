@@ -130,10 +130,17 @@ export function modelProvider(modelId) {
  * `executor` → `vertex_ai/claude-sonnet-5`) are covered too.
  *
  * Probed 2026-09-08: `claude-sonnet-5` and `claude-opus-4-7` return
- * `litellm.UnsupportedParamsError` for all three. `claude-haiku-4-5` accepts
- * them. **When a new Claude id appears on the gateway, check this regex.**
+ * `litellm.UnsupportedParamsError` for all three. `claude-haiku-4-5` accepted
+ * them then.
+ *
+ * Probed 2026-11-19: `claude-haiku-4-5` now routes to `claude-haiku-5-5`
+ * (`anthropic/` and `vertex_ai/` both), which rejects all three, each alone.
+ * The gateway's `supported_openai_params` for the `anthropic/` route WRONGLY
+ * lists `temperature` and `top_p`, so this regex must cover `haiku-5`; the
+ * gateway list alone does not stop them.
+ * **When a new Claude id appears on the gateway, check this regex.**
  */
-const CLAUDE5_FAMILY_REGEX = /claude-(fable|mythos|opus-5|opus-4-8|opus-4-7|sonnet-5)/i;
+const CLAUDE5_FAMILY_REGEX = /claude-(fable|mythos|opus-5|opus-4-8|opus-4-7|sonnet-5|haiku-5)/i;
 
 /**
  * @typedef {Object} SamplingSupport
@@ -144,18 +151,45 @@ const CLAUDE5_FAMILY_REGEX = /claude-(fable|mythos|opus-5|opus-4-8|opus-4-7|sonn
  */
 
 /**
+ * The gateway's own answer: `model_info.supported_openai_params`, snapshotted
+ * into `MODEL_INFO[id].supportedParams` by `scripts/refresh-pricing.mjs`.
+ * When the gateway publishes no list (`null`, or an unknown model), it allows
+ * all three, so the measured rules below decide on their own.
+ *
+ * @param {string} [modelId]
+ * @returns {{ temperature: boolean, topP: boolean, topK: boolean }}
+ */
+function gatewaySamplingSupport(modelId) {
+	const listed = getModelInfo(modelId || '')?.supportedParams;
+	if (!Array.isArray(listed)) return { temperature: true, topP: true, topK: true };
+	return {
+		temperature: listed.includes('temperature'),
+		topP: listed.includes('top_p'),
+		topK: listed.includes('top_k')
+	};
+}
+
+/**
  * §6.5 — which sampling parameters a model actually accepts.
  *
  * `drop_params` is NOT enabled on this deployment, so an unsupported parameter
- * is a 400, not a no-op. All four rows below were probed live on 2026-09-08:
+ * is a 400, not a no-op. Two sources, combined by AND (each can only REMOVE a
+ * parameter, never add one back):
+ *
+ * 1. **The gateway list, first.** `MODEL_INFO[id].supportedParams` is the
+ *    gateway's `supported_openai_params`. If it omits `temperature`, `top_p` or
+ *    `top_k`, the gateway rejects that parameter. Since 2026-11-19 this is how
+ *    `gemini-3.8-flash` rejects `temperature` and `top_p`. `null` = no list =
+ *    no restriction from this source.
+ * 2. **The measured rules**, probed live on 2026-09-08:
  *
  * | model                | temperature | top_p | top_k | note                          |
  * |----------------------|-------------|-------|-------|-------------------------------|
  * | claude-sonnet-5      | ✗ (only 1)  | ✗     | ✗     | whole Claude 5 family         |
- * | claude-haiku-4-5     | ✓           | ✓     | ✓     | but not temperature+top_p together |
+ * | claude-haiku-5-5     | ✗           | ✗     | ✗     | 2026-11-19; `claude-haiku-4-5` routes here now |
+ * | other claude-*       | ✓           | ✓     | ✓     | but not temperature+top_p together |
  * | gpt-5.6-luna         | ✗ (only 1)  | ✗     | ✗     | reasoning models              |
- * | gemini-3.8-flash     | ✓           | ✓     | ✓     |                               |
- * | kimi/qwen/glm/deepseek| ✓          | ✓     | ✓     |                               |
+ * | everything else      | ✓           | ✓     | ✓     | subject to the gateway list   |
  *
  * Anthropic additionally rejects all three whenever extended thinking is on:
  * "`temperature` may only be set to 1 when thinking is enabled" (400, observed
@@ -170,22 +204,114 @@ export function samplingSupport(modelId, opts = {}) {
 	const provider = modelProvider(modelId);
 	const upstream = getModelInfo(modelId || '')?.upstreamModel || '';
 	const probe = `${modelId || ''} ${upstream}`;
+	const gateway = gatewaySamplingSupport(modelId);
+
+	/** @type {SamplingSupport} */
+	let measured = { temperature: true, topP: true, topK: true, exclusiveTempTopP: false };
 
 	if (provider === 'anthropic') {
 		if (opts.reasoning || CLAUDE5_FAMILY_REGEX.test(probe)) {
-			return { temperature: false, topP: false, topK: false, exclusiveTempTopP: false };
+			measured = { temperature: false, topP: false, topK: false, exclusiveTempTopP: false };
+		} else {
+			// Served through Vertex, which rejects temperature and top_p together.
+			measured = { temperature: true, topP: true, topK: true, exclusiveTempTopP: true };
 		}
-		// Served through Vertex, which rejects temperature and top_p together.
-		return { temperature: true, topP: true, topK: true, exclusiveTempTopP: true };
+	} else if (provider === 'openai') {
+		// Every GPT model on this gateway is a reasoning model; they accept only the
+		// default temperature and reject top_p / top_k entirely.
+		measured = { temperature: false, topP: false, topK: false, exclusiveTempTopP: false };
 	}
 
-	// Every GPT model on this gateway is a reasoning model; they accept only the
-	// default temperature and reject top_p / top_k entirely.
-	if (provider === 'openai') {
-		return { temperature: false, topP: false, topK: false, exclusiveTempTopP: false };
+	const runtime = RUNTIME_SAMPLING_REJECTIONS.get(modelId || '');
+
+	return {
+		temperature: measured.temperature && gateway.temperature && !runtime?.has('temperature'),
+		topP: measured.topP && gateway.topP && !runtime?.has('top_p'),
+		topK: measured.topK && gateway.topK && !runtime?.has('top_k'),
+		exclusiveTempTopP: measured.exclusiveTempTopP
+	};
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Runtime recovery — a gateway that changed after this package was published
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** The only parameters runtime recovery may strip. Wire names. */
+const SAMPLING_WIRE_PARAMS = new Set(['temperature', 'top_p', 'top_k']);
+
+/**
+ * Sampling params the gateway rejected at runtime, per model id, for the life
+ * of the process. `samplingSupport()` ANDs this in, so after one rejection the
+ * package stops sending the parameter to that model.
+ *
+ * @type {Map<string, Set<string>>}
+ */
+const RUNTIME_SAMPLING_REJECTIONS = new Map();
+
+/**
+ * Reads the parameter names out of a LiteLLM `UnsupportedParamsError`. Returns
+ * them only when EVERY named parameter is `temperature`, `top_p` or `top_k`;
+ * anything else (or a different error) returns `null`, so the caller rethrows.
+ *
+ * Shapes seen live on 2026-11-19:
+ *   "vertex_ai does not support parameters: ['temperature', 'top_p'], for model=…"
+ *   "gemini-3.8-flash does not support top_k: the model map …"
+ *   "claude-haiku-5-5 does not support top_k=20. To drop …"
+ *   "gpt-6-luna doesn't support temperature=0.7 while reasoning …"
+ *
+ * @param {any} err the error thrown by the request (mapped or raw)
+ * @returns {string[] | null}
+ */
+export function unsupportedSamplingParams(err) {
+	// Walk to the innermost cause: a mapped error's own message embeds the
+	// wrapper's prose ("...a request parameter it does not support for model..."),
+	// which the single-parameter regex below would misread as the name "for".
+	let root = err;
+	for (let i = 0; i < 5 && root?.cause; i++) root = root.cause;
+	const raw = root?.error?.message ?? root?.message ?? '';
+	const text = typeof raw === 'string' ? raw : JSON.stringify(raw);
+	if (!/UnsupportedParamsError/i.test(text)) return null;
+
+	/** @type {string[]} */
+	let names = [];
+	const bracketed = text.match(/does not support parameters:\s*\[([^\]]*)\]/i);
+	if (bracketed) {
+		names = [...bracketed[1].matchAll(/['"]([^'"]+)['"]/g)].map(m => m[1]);
+	} else {
+		const single = text.match(/(?:does not|doesn't) support ([a-z_]+)/i);
+		if (single) names = [single[1]];
 	}
 
-	return { temperature: true, topP: true, topK: true, exclusiveTempTopP: false };
+	if (!names.length || !names.every(n => SAMPLING_WIRE_PARAMS.has(n))) return null;
+	return names;
+}
+
+/**
+ * Records a runtime rejection and warns once per model and parameter set.
+ * This is a drift signal, so it warns rather than logging at debug.
+ *
+ * @param {string} modelId
+ * @param {string[]} params wire names
+ * @param {boolean} [silent]
+ */
+export function recordSamplingRejection(modelId, params, silent = false) {
+	const set = RUNTIME_SAMPLING_REJECTIONS.get(modelId) ?? new Set();
+	for (const p of params) set.add(p);
+	RUNTIME_SAMPLING_REJECTIONS.set(modelId, set);
+	const names = [...params].sort().join(', ');
+	warnOnce(
+		`sampling-drift:${modelId}:${names}`,
+		`ak-litellm: the gateway rejected ${names} for model '${modelId}', but the ` +
+		`committed snapshot allowed it. Dropped it and retried; it stays dropped for ` +
+		`this process. The gateway changed — run \`npm run refresh-pricing\` in ak-litellm ` +
+		`and publish a new release.`,
+		silent
+	);
+}
+
+/** Test seam: forget every runtime sampling rejection. */
+export function _resetSamplingRejections() {
+	RUNTIME_SAMPLING_REJECTIONS.clear();
 }
 
 /**

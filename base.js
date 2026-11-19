@@ -26,7 +26,9 @@ import {
 	normalizeOptions,
 	normalizeToolChoice,
 	normalizeToolDeclarations,
+	recordSamplingRejection,
 	samplingSupport,
+	unsupportedSamplingParams,
 	warnOnce
 } from './compat.js';
 import {
@@ -588,10 +590,45 @@ class BaseLiteLLM {
 		this._pushUserContent(userContent);
 
 		const params = this._buildRequestParams({ ...opts, stream: true });
-		try {
-			return await this.client.chat.completions.create(params);
-		} catch (err) {
-			throw mapGatewayError(err, { model: params.model });
+		return this._withSamplingRecovery(params, async (p) => {
+			try {
+				return await this.client.chat.completions.create(p);
+			} catch (err) {
+				throw mapGatewayError(err, { model: p.model });
+			}
+		});
+	}
+
+	/**
+	 * Runs one request. If the gateway rejects ONLY sampling params
+	 * (`temperature`, `top_p`, `top_k`) that this request carried, records them
+	 * for the model, warns once, strips them and retries. Some error shapes name
+	 * one parameter at a time, so it retries once per newly rejected parameter,
+	 * at most three times.
+	 *
+	 * This covers a gateway change after a release. Any other error throws
+	 * unchanged.
+	 *
+	 * @param {any} params
+	 * @param {(params: any) => Promise<any>} send
+	 * @returns {Promise<any>}
+	 * @protected
+	 */
+	async _withSamplingRecovery(params, send) {
+		let current = params;
+		for (;;) {
+			try {
+				return await send(current);
+			} catch (err) {
+				const rejected = unsupportedSamplingParams(err);
+				// Each pass must strip a param the request still carries, so this
+				// ends after at most three retries.
+				if (!rejected || !rejected.some(k => current[k] !== undefined)) throw err;
+
+				recordSamplingRejection(current.model, rejected, this._silentCompat);
+				current = { ...current };
+				for (const k of rejected) delete current[k];
+			}
 		}
 	}
 
@@ -604,6 +641,17 @@ class BaseLiteLLM {
 	 * @protected
 	 */
 	async _call(params) {
+		return this._withSamplingRecovery(params, (p) => this._callOnce(p));
+	}
+
+	/**
+	 * `_call()` without sampling recovery: exactly one HTTP round-trip.
+	 *
+	 * @param {any} params
+	 * @returns {Promise<any>}
+	 * @protected
+	 */
+	async _callOnce(params) {
 		if (this._useResponsesTransport(params.model)) return this._callResponses(params);
 		try {
 			const { data, response: httpResponse } =

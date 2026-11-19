@@ -2,7 +2,7 @@
 	"name": "ak-litellm",
 	"author": "ak@mixpanel.com",
 	"description": "AK's LiteLLM gateway wrapper — drop-in for ak-claude / ak-gemini",
-	"version": "0.2.0",
+	"version": "0.2.1",
 	"main": "index.js",
 	"files": [
 		".env.example",

@@ -1,5 +1,48 @@
 # Changelog
 
+## 0.2.1 — 2026-11-19
+
+Bug fix. No API change.
+
+### Fixed
+
+- **`gemini-3.8-flash` failed on every call with default options.** From about
+  06:34 UTC on 2026-11-19 the gateway rejects `temperature` and `top_p` for
+  this model with `UnsupportedParamsError`. 0.2.0 sent both by default (0.7 /
+  0.95), because `samplingSupport()` allowed all three sampling params for
+  every model that was not Anthropic or OpenAI.
+- **`claude-haiku-4-5` failed on every call with default options.** It now
+  routes to `claude-haiku-5-5`, which rejects all three sampling params.
+  `CLAUDE5_FAMILY_REGEX` now matches `haiku-5`.
+
+### Changed
+
+- `samplingSupport()` reads the gateway's own list first. Each `MODEL_INFO`
+  entry carries `supportedParams` (`model_info.supported_openai_params`, or
+  `null` when the gateway publishes none). The measured family rules still
+  apply, combined by AND, so either source can remove a parameter and neither
+  can add one back.
+- **Runtime recovery.** If the gateway rejects only `temperature`, `top_p` or
+  `top_k`, and the request carried one of them, ak-litellm strips them,
+  retries (once per newly rejected parameter, at most three times), and stops
+  sending them to that model for the rest of the process. It warns once per
+  model and tells you to run `npm run refresh-pricing`. Any other rejected
+  parameter throws as before.
+- The model snapshot is regenerated from the gateway (`MODEL_PRICING_AS_OF`
+  2026-11-19). The roster grew from 19 to 50 ids, several existing ids now
+  route to newer upstream models, and some rates changed. `claude-haiku-4-5`
+  now reads $0.10 / $0.50 per M and a 1M-token window.
+
+### Known gateway drift not fixed here
+
+The live suite has three failures that 0.2.0 also has. All three come from
+`claude-haiku-4-5` now routing to `claude-haiku-5-5`:
+
+- It now caches, but `CACHE_CAPABLE_MODELS` excludes it.
+- It now rejects assistant prefill, but `PREFILL_MODES` says `continue`, so
+  `prefill` on `claude-haiku-4-5` is a 400.
+- `maxTokens: 64` with `effort: 'high'` no longer fails.
+
 ## 0.2.0 — 2026-09-11
 
 The batteries-included pass. Prompt caching became real when the gateway key was

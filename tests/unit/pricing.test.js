@@ -113,7 +113,8 @@ describe('computeCost()', () => {
 
 	it('reads the model from the usage object when none is passed', () => {
 		const cost = computeCost({ promptTokens: 1_000_000, responseTokens: 0, requestedModel: 'claude-haiku-4-5' });
-		expect(cost).toBeCloseTo(1, 6);
+		// 2026-11-19 snapshot: claude-haiku-4-5 routes to claude-haiku-5-5 at $0.1/M input.
+		expect(cost).toBeCloseTo(0.1, 6);
 	});
 
 	it('accepts the ak-claude / ak-gemini positional signature', () => {

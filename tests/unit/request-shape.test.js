@@ -5,7 +5,7 @@
 
 import { jest } from '@jest/globals';
 import { setup, mock, chatResponse, toolCall, streamChunks } from './_harness.js';
-import { _resetWarnings } from '../../compat.js';
+import { _resetWarnings, _resetSamplingRejections } from '../../compat.js';
 import log from '../../logger.js';
 
 const { Chat, Message, ToolAgent, Transformer, RagAgent } = await setup();
@@ -15,6 +15,7 @@ const OPTS = { logLevel: 'none' };
 beforeEach(() => {
 	mock.reset();
 	_resetWarnings();
+	_resetSamplingRejections();
 	jest.spyOn(log, 'warn').mockImplementation(() => {});
 });
 
@@ -82,17 +83,19 @@ describe('request body', () => {
 		expect(req.top_k).toBeUndefined();
 	});
 
-	it('sends all three to a Google model', async () => {
-		const chat = new Chat({ ...OPTS, modelName: 'gemini-3.8-flash', temperature: 0.3, topP: 0.8, topK: 20 });
-		mock.queue(chatResponse('ok', { model: 'gemini-3.8-flash' }));
+	it('sends all three to a Google model whose gateway list allows them', async () => {
+		const chat = new Chat({ ...OPTS, modelName: 'gemini-4-argon', temperature: 0.3, topP: 0.8, topK: 20 });
+		mock.queue(chatResponse('ok', { model: 'gemini-4-argon' }));
 		await chat.send('hi');
 
 		expect(mock.lastRequest()).toMatchObject({ temperature: 0.3, top_p: 0.8, top_k: 20 });
 	});
 
-	it('drops top_p on claude-haiku-4-5 when temperature is also set', async () => {
-		const chat = new Chat({ ...OPTS, modelName: 'claude-haiku-4-5', temperature: 0.5, topP: 0.9 });
-		mock.queue(chatResponse('ok', { model: 'claude-haiku-4-5' }));
+	// No Claude id on the 2026-11-19 gateway takes sampling params any more, so
+	// the Vertex temperature-xor-top_p rule is exercised on an unlisted id.
+	it('drops top_p on a non-Claude-5 Anthropic model when temperature is also set', async () => {
+		const chat = new Chat({ ...OPTS, modelName: 'claude-unlisted-4', temperature: 0.5, topP: 0.9 });
+		mock.queue(chatResponse('ok', { model: 'claude-unlisted-4' }));
 		await chat.send('hi');
 
 		const req = mock.lastRequest();
@@ -100,9 +103,9 @@ describe('request body', () => {
 		expect(req.top_p).toBeUndefined();
 	});
 
-	it('sends top_p alone on claude-haiku-4-5 when temperature is suppressed', async () => {
-		const chat = new Chat({ ...OPTS, modelName: 'claude-haiku-4-5', temperature: null, topP: 0.9 });
-		mock.queue(chatResponse('ok', { model: 'claude-haiku-4-5' }));
+	it('sends top_p alone on a non-Claude-5 Anthropic model when temperature is suppressed', async () => {
+		const chat = new Chat({ ...OPTS, modelName: 'claude-unlisted-4', temperature: null, topP: 0.9 });
+		mock.queue(chatResponse('ok', { model: 'claude-unlisted-4' }));
 		await chat.send('hi');
 
 		const req = mock.lastRequest();
@@ -111,13 +114,13 @@ describe('request body', () => {
 	});
 
 	it('null means never-send, distinct from undefined meaning use-the-default', async () => {
-		const withDefault = new Chat({ ...OPTS, modelName: 'gemini-3.8-flash' });
-		mock.queue(chatResponse('ok', { model: 'gemini-3.8-flash' }));
+		const withDefault = new Chat({ ...OPTS, modelName: 'gemini-4-argon' });
+		mock.queue(chatResponse('ok', { model: 'gemini-4-argon' }));
 		await withDefault.send('hi');
 		expect(mock.lastRequest().temperature).toBe(0.7);
 
-		const suppressed = new Chat({ ...OPTS, modelName: 'gemini-3.8-flash', temperature: null, topP: null });
-		mock.queue(chatResponse('ok', { model: 'gemini-3.8-flash' }));
+		const suppressed = new Chat({ ...OPTS, modelName: 'gemini-4-argon', temperature: null, topP: null });
+		mock.queue(chatResponse('ok', { model: 'gemini-4-argon' }));
 		await suppressed.send('hi');
 		expect(mock.lastRequest().temperature).toBeUndefined();
 		expect(mock.lastRequest().top_p).toBeUndefined();
@@ -145,8 +148,8 @@ describe('request body', () => {
 	});
 
 	it('keeps sampling params on a Google model under effort', async () => {
-		const chat = new Chat({ ...OPTS, modelName: 'gemini-3.8-flash', effort: 'low', temperature: 0.2 });
-		mock.queue(chatResponse('ok', { model: 'gemini-3.8-flash' }));
+		const chat = new Chat({ ...OPTS, modelName: 'gemini-4-argon', effort: 'low', temperature: 0.2 });
+		mock.queue(chatResponse('ok', { model: 'gemini-4-argon' }));
 		await chat.send('hi');
 
 		expect(mock.lastRequest().reasoning_effort).toBe('low');
@@ -408,5 +411,137 @@ describe('Transformer', () => {
 		expect(t.exampleCount).toBe(2);
 		expect(t.getHistory()[0].role).toBe('user');
 		expect(t.getHistory()[1].role).toBe('assistant');
+	});
+});
+
+describe('gateway-driven sampling gate (0.2.1)', () => {
+	it('_applySamplingParams({}) on a default gemini-3.8-flash Chat returns {}', () => {
+		const chat = new Chat({ ...OPTS, modelName: 'gemini-3.8-flash' });
+		expect(chat._applySamplingParams({})).toEqual({});
+	});
+
+	it('a default Chat, Message and Transformer on gemini-3.8-flash send no sampling params', async () => {
+		const chat = new Chat({ ...OPTS, modelName: 'gemini-3.8-flash' });
+		mock.queue(chatResponse('ok', { model: 'gemini-3.8-flash' }));
+		await chat.send('hi');
+
+		const msg = new Message({ ...OPTS, modelName: 'gemini-3.8-flash' });
+		mock.queue(chatResponse('ok', { model: 'gemini-3.8-flash' }));
+		await msg.send('hi');
+
+		const t = new Transformer({ ...OPTS, modelName: 'gemini-3.8-flash' });
+		mock.queue(chatResponse('{"a":1}', { model: 'gemini-3.8-flash' }));
+		await t.send({ x: 1 });
+
+		expect(mock.requests).toHaveLength(3);
+		for (const req of mock.requests) {
+			expect(req.temperature).toBeUndefined();
+			expect(req.top_p).toBeUndefined();
+			expect(req.top_k).toBeUndefined();
+		}
+	});
+});
+
+describe('runtime sampling recovery (0.2.1)', () => {
+	const LOUD = { logLevel: 'error' };
+	/** @param {string} msg */
+	const gatewayError = (msg) => Object.assign(new Error(`400 ${msg}`), { status: 400, error: { message: msg } });
+
+	/** @type {string[]} */
+	let warned;
+	beforeEach(() => {
+		warned = [];
+		jest.spyOn(console, 'warn').mockImplementation((m) => { warned.push(String(m)); });
+	});
+
+	it('retries once without the rejected param, warns once, and stops sending it', async () => {
+		const chat = new Chat({ ...LOUD, modelName: 'kimi-k3' });
+		mock.failNext = gatewayError(
+			"litellm.UnsupportedParamsError: fireworks_ai does not support parameters: ['temperature'], for model=kimi-k3."
+		);
+		mock.queue(chatResponse('ok', { model: 'kimi-k3' }));
+		const r = await chat.send('hi');
+
+		expect(r.text).toBe('ok');
+		expect(mock.requests).toHaveLength(2);
+		expect(mock.requests[0].temperature).toBe(0.7);
+		expect(mock.requests[1].temperature).toBeUndefined();
+		expect(mock.requests[1].top_p).toBe(0.95);
+		expect(warned.filter(w => w.includes("'kimi-k3'") && w.includes('refresh-pricing'))).toHaveLength(1);
+
+		// The next request omits temperature up front: no second retry, no second warning.
+		mock.queue(chatResponse('ok', { model: 'kimi-k3' }));
+		await chat.send('again');
+		expect(mock.requests).toHaveLength(3);
+		expect(mock.requests[2].temperature).toBeUndefined();
+		expect(warned.filter(w => w.includes("'kimi-k3'"))).toHaveLength(1);
+	});
+
+	it('strips params one at a time when the gateway names one per error', async () => {
+		const chat = new Chat({ ...LOUD, modelName: 'kimi-k3' });
+		mock.failNext = [
+			gatewayError("litellm.UnsupportedParamsError: kimi-k3 doesn't support temperature=0.7 here"),
+			gatewayError('litellm.UnsupportedParamsError: kimi-k3 does not support top_p=0.95. To drop unsupported params')
+		];
+		mock.queue(chatResponse('ok', { model: 'kimi-k3' }));
+		const r = await chat.send('hi');
+
+		expect(r.text).toBe('ok');
+		expect(mock.requests).toHaveLength(3);
+		expect(mock.requests[1].temperature).toBeUndefined();
+		expect(mock.requests[1].top_p).toBe(0.95);
+		expect(mock.requests[2].temperature).toBeUndefined();
+		expect(mock.requests[2].top_p).toBeUndefined();
+	});
+
+	it('stops when a retry fails on a param it already stripped', async () => {
+		const chat = new Chat({ ...LOUD, modelName: 'kimi-k3' });
+		const same = "litellm.UnsupportedParamsError: x does not support parameters: ['temperature'], for model=kimi-k3.";
+		mock.failNext = [gatewayError(same), gatewayError(same)];
+		await expect(chat.send('hi')).rejects.toThrow(/UnsupportedParamsError/);
+		expect(mock.requests).toHaveLength(2);
+	});
+
+	it('recovers on the streaming path too', async () => {
+		const chat = new Chat({ ...LOUD, modelName: 'glm-5.3' });
+		mock.failNext = gatewayError(
+			"litellm.UnsupportedParamsError: fireworks_ai does not support parameters: ['top_p'], for model=glm-5.3."
+		);
+		mock.queueStream(streamChunks(['o', 'k'], { model: 'glm-5.3' }));
+		const out = [];
+		for await (const ev of chat.stream('hi')) out.push(ev);
+
+		expect(mock.requests).toHaveLength(2);
+		expect(mock.requests[0].top_p).toBe(0.95);
+		expect(mock.requests[1].top_p).toBeUndefined();
+	});
+
+	it('does not retry when a non-sampling param is rejected', async () => {
+		const chat = new Chat({ ...LOUD, modelName: 'kimi-k3' });
+		mock.failNext = gatewayError(
+			"litellm.UnsupportedParamsError: fireworks_ai does not support parameters: ['tools'], for model=kimi-k3."
+		);
+		await expect(chat.send('hi')).rejects.toThrow(/This is an ak-litellm bug/);
+		expect(mock.requests).toHaveLength(1);
+		expect(warned).toHaveLength(0);
+	});
+
+	it('does not retry when the request did not carry the rejected param', async () => {
+		const chat = new Chat({ ...LOUD, modelName: 'kimi-k3', topK: undefined });
+		mock.failNext = gatewayError(
+			"litellm.UnsupportedParamsError: fireworks_ai does not support parameters: ['top_k'], for model=kimi-k3."
+		);
+		await expect(chat.send('hi')).rejects.toThrow(/UnsupportedParamsError/);
+		expect(mock.requests).toHaveLength(1);
+	});
+
+	it('surfaces the retry error unchanged when the retry also fails', async () => {
+		const chat = new Chat({ ...LOUD, modelName: 'kimi-k3' });
+		mock.failNext = gatewayError(
+			"litellm.UnsupportedParamsError: fireworks_ai does not support parameters: ['temperature'], for model=kimi-k3."
+		);
+		// No queued response: the mock throws on the retry.
+		await expect(chat.send('hi')).rejects.toThrow(/response queue is empty/);
+		expect(mock.requests).toHaveLength(2);
 	});
 });

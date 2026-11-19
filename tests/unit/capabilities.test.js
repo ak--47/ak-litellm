@@ -126,12 +126,15 @@ describe('cache_control on the wire', () => {
 describe('cache cost accounting', () => {
 	// THIS GATEWAY INCLUDES cache tokens in prompt_tokens (Google's convention).
 	// Every number below reproduces a real x-litellm-response-cost header from
-	// 2026-09-11 on claude-sonnet-5 ($2 in / $10 out / $0.2 cached).
+	// 2026-09-11 on claude-sonnet-5 ($2 in / $10 out / $0.2 cached). The
+	// 2026-11-19 snapshot cut the cached rate to $0.1 (it now routes to
+	// claude-sonnet-5-5), so the read below is re-priced at that rate.
 	const M = 'claude-sonnet-5';
 
 	it('bills a cache read at the cached rate, not the input rate', () => {
 		const got = computeCost({ promptTokens: 4815, responseTokens: 16, cacheReadTokens: 4808 }, M);
-		expect(got).toBeCloseTo(0.0011356, 9);
+		// 7 × $2 + 4808 × $0.1 + 16 × $10, per million
+		expect(got).toBeCloseTo(0.0006548, 9);
 	});
 
 	it('bills a 5m cache write at 1.25x input', () => {
@@ -210,16 +213,16 @@ describe('assistant prefill — three behaviours', () => {
 describe('capability gating', () => {
 	it('reports the real context window', () => {
 		expect(contextWindow('claude-sonnet-5')).toBe(1_000_000);
-		expect(contextWindow('claude-haiku-4-5')).toBe(200_000);
+		expect(contextWindow('gemini-3.8-flash')).toBe(1_048_576);
 		expect(contextWindow('nonexistent')).toBeNull();
 	});
 
 	it('estimate() reports fit against the window', async () => {
-		const chat = new Chat({ ...OPTS, modelName: 'claude-haiku-4-5' });
+		const chat = new Chat({ ...OPTS, modelName: 'gemini-3.8-flash' });
 		const e = await chat.estimate('hello');
-		expect(e.contextWindow).toBe(200_000);
+		expect(e.contextWindow).toBe(1_048_576);
 		expect(e.fits).toBe(true);
-		expect(e.headroom).toBeGreaterThan(190_000);
+		expect(e.headroom).toBeGreaterThan(1_040_000);
 		expect(e.approximate).toBe(true);
 	});
 

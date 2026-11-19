@@ -21,9 +21,12 @@ import {
 	samplingSupport,
 	supportsTopK,
 	supportsWebSearch,
-	modelProvider
+	modelProvider,
+	unsupportedSamplingParams,
+	recordSamplingRejection,
+	_resetSamplingRejections
 } from '../../compat.js';
-import { EFFORT_LEVELS, budgetTokensToEffort } from '../../models.js';
+import { EFFORT_LEVELS, budgetTokensToEffort, MODEL_INFO } from '../../models.js';
 
 /** @type {any} */
 let warnSpy;
@@ -203,39 +206,85 @@ describe('effort — the union vocabulary', () => {
 	});
 });
 
-describe('§6.5 sampling-parameter gating (probed 2026-09-08)', () => {
+describe('§6.5 sampling-parameter gating (gateway list AND measured rules, 2026-11-19)', () => {
+	const NONE = { temperature: false, topP: false, topK: false, exclusiveTempTopP: false };
+	const ALL = { temperature: true, topP: true, topK: true, exclusiveTempTopP: false };
+
+	afterEach(() => _resetSamplingRejections());
+
 	it('the Claude 5 family accepts none of the three', () => {
 		for (const id of ['claude-sonnet-5', 'claude-opus-5', 'claude-opus-4-7', 'claude-fable-5-1', 'advisor', 'executor']) {
-			expect(samplingSupport(id)).toEqual({ temperature: false, topP: false, topK: false, exclusiveTempTopP: false });
+			expect(samplingSupport(id)).toEqual(NONE);
 		}
 	});
 
-	it('claude-haiku-4-5 accepts all three but not temperature + top_p together', () => {
-		expect(samplingSupport('claude-haiku-4-5')).toEqual({
+	it('claude-haiku-4-5 accepts none: it routes to claude-haiku-5-5 (probed 2026-11-19)', () => {
+		// The gateway list for anthropic/claude-haiku-5-5 wrongly includes
+		// temperature and top_p; the measured Claude 5 rule removes them.
+		expect(MODEL_INFO['claude-haiku-4-5'].supportedParams).toContain('temperature');
+		for (const id of ['claude-haiku-4-5', 'claude-haiku-5-5', 'claude-haiku-4-5-vertex']) {
+			expect(samplingSupport(id)).toEqual(NONE);
+		}
+	});
+
+	it('an Anthropic model outside the Claude 5 family keeps the Vertex xor rule', () => {
+		expect(samplingSupport('claude-unlisted-4')).toEqual({
 			temperature: true, topP: true, topK: true, exclusiveTempTopP: true
 		});
 	});
 
 	it('Anthropic rejects all three while thinking is on', () => {
 		// Live 400: "`temperature` may only be set to 1 when thinking is enabled".
-		expect(samplingSupport('claude-haiku-4-5', { reasoning: true }))
-			.toEqual({ temperature: false, topP: false, topK: false, exclusiveTempTopP: false });
+		expect(samplingSupport('claude-unlisted-4', { reasoning: true })).toEqual(NONE);
 		// Not a blanket rule — Google keeps its sampling params under reasoning.
-		expect(samplingSupport('gemini-3.8-flash', { reasoning: true }).temperature).toBe(true);
+		expect(samplingSupport('gemini-4-argon', { reasoning: true }).temperature).toBe(true);
 	});
 
 	it('every gpt-* model rejects all three', () => {
-		for (const id of ['gpt-5.5', 'gpt-5.6-luna', 'gpt-6-astra']) {
-			expect(samplingSupport(id).temperature).toBe(false);
-			expect(samplingSupport(id).topP).toBe(false);
+		for (const id of ['gpt-5.5', 'gpt-5.6-luna', 'gpt-6-astra', 'gpt-6-luna', 'observer']) {
+			expect(samplingSupport(id)).toEqual(NONE);
 			expect(supportsTopK(id)).toBe(false);
 		}
 	});
 
-	it('Google and the open-weight models accept all three', () => {
-		for (const id of ['gemini-3.8-flash', 'kimi-k3', 'qwen3.8-max', 'glm-5.3', 'deepseek-v4-flash']) {
-			expect(samplingSupport(id)).toEqual({ temperature: true, topP: true, topK: true, exclusiveTempTopP: false });
+	it('gemini-3.8-flash accepts none: its gateway list omits all three', () => {
+		expect(MODEL_INFO['gemini-3.8-flash'].supportedParams).not.toContain('temperature');
+		expect(samplingSupport('gemini-3.8-flash')).toEqual(NONE);
+		expect(samplingSupport('gemini-3.8-flash', { reasoning: true })).toEqual(NONE);
+	});
+
+	it('models whose gateway list includes all three keep them', () => {
+		for (const id of ['gemini-4-argon', 'gemini-4-neon', 'kimi-k3', 'kimi-k3.1', 'glm-5.3', 'deepseek-v4.1-flash']) {
+			expect(samplingSupport(id)).toEqual(ALL);
 		}
+	});
+
+	it('a list that omits one parameter removes only that one', () => {
+		const saved = MODEL_INFO['kimi-k3'].supportedParams;
+		try {
+			MODEL_INFO['kimi-k3'].supportedParams = ['max_tokens', 'top_p', 'top_k'];
+			expect(samplingSupport('kimi-k3')).toEqual({ ...ALL, temperature: false });
+		} finally {
+			MODEL_INFO['kimi-k3'].supportedParams = saved;
+		}
+	});
+
+	it('supportedParams: null means "the gateway did not say", not "supports nothing"', () => {
+		const saved = MODEL_INFO['kimi-k3'].supportedParams;
+		try {
+			MODEL_INFO['kimi-k3'].supportedParams = null;
+			expect(samplingSupport('kimi-k3')).toEqual(ALL);
+		} finally {
+			MODEL_INFO['kimi-k3'].supportedParams = saved;
+		}
+		// An id missing from the snapshot falls back the same way.
+		expect(samplingSupport('brand-new-model')).toEqual(ALL);
+	});
+
+	it('a runtime rejection removes the parameter for that model only', () => {
+		recordSamplingRejection('kimi-k3', ['temperature'], true);
+		expect(samplingSupport('kimi-k3')).toEqual({ ...ALL, temperature: false });
+		expect(samplingSupport('glm-5.3')).toEqual(ALL);
 	});
 
 	it('classifies a provider from the upstream deployment, not just the id', () => {
@@ -245,6 +294,50 @@ describe('§6.5 sampling-parameter gating (probed 2026-09-08)', () => {
 		expect(modelProvider('gpt-5.6-luna')).toBe('openai');
 		expect(modelProvider('qwen3.8-max')).toBe('qwen');
 		expect(modelProvider('deepseek-v4-pro')).toBe('other');
+	});
+});
+
+describe('unsupportedSamplingParams — parsing the gateway error (shapes seen 2026-11-19)', () => {
+	const err = (/** @type {string} */ m) => Object.assign(new Error(m), { status: 400 });
+
+	it('reads the bracketed list', () => {
+		expect(unsupportedSamplingParams(err(
+			"litellm.UnsupportedParamsError: vertex_ai does not support parameters: ['temperature', 'top_p'], for model=gemini-3.8-flash."
+		))).toEqual(['temperature', 'top_p']);
+	});
+
+	it('reads the single-parameter shapes', () => {
+		expect(unsupportedSamplingParams(err(
+			'litellm.UnsupportedParamsError: claude-haiku-5-5 does not support top_k=20. To drop unsupported params'
+		))).toEqual(['top_k']);
+		expect(unsupportedSamplingParams(err(
+			"litellm.UnsupportedParamsError: gpt-6-luna doesn't support temperature=0.7 while reasoning"
+		))).toEqual(['temperature']);
+	});
+
+	it('returns null when any listed parameter is not a sampling parameter', () => {
+		expect(unsupportedSamplingParams(err(
+			"litellm.UnsupportedParamsError: vertex_ai does not support parameters: ['temperature', 'tools'], for model=x."
+		))).toBeNull();
+	});
+
+	it('returns null for any other error', () => {
+		expect(unsupportedSamplingParams(err('litellm.BadRequestError: Invalid model name'))).toBeNull();
+		expect(unsupportedSamplingParams(err("Unknown parameter: 'top_k'"))).toBeNull();
+	});
+
+	it('reads through a mapped error to its cause', () => {
+		const mapped = Object.assign(new Error('ak-litellm: wrapped'), {
+			cause: { error: { message: "litellm.UnsupportedParamsError: x does not support parameters: ['top_p'], for model=y" } }
+		});
+		expect(unsupportedSamplingParams(mapped)).toEqual(['top_p']);
+	});
+
+	it('reads through a doubly mapped error (the /v1/responses path) to the gateway text', () => {
+		const raw = err("litellm.UnsupportedParamsError: gpt-6-luna doesn't support temperature=0.7 while reasoning");
+		const once = Object.assign(new Error('ak-litellm: the gateway rejected a request parameter it does not support for model x.'), { cause: raw });
+		const twice = Object.assign(new Error('ak-litellm: wrapped again'), { cause: once });
+		expect(unsupportedSamplingParams(twice)).toEqual(['temperature']);
 	});
 });
 

@@ -692,6 +692,11 @@ export interface ModelInfo {
   supportsReasoning: boolean;
   supportsVision: boolean;
   supportsFunctionCalling: boolean;
+  /**
+   * `model_info.supported_openai_params` from the gateway. `null` means the
+   * gateway did not publish a list, never "supports nothing".
+   */
+  supportedParams: string[] | null;
   [key: string]: any;
 }
 

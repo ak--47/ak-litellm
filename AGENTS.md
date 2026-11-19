@@ -72,17 +72,23 @@ These are verified live, not guesses. Do not "fix" the code that handles them.
 
 ### `drop_params` is OFF on this deployment
 
-Most LiteLLM deployments strip parameters the upstream provider rejects. This one forwards them and you get a 400. `compat.samplingSupport()` gates by model family from a live probe. If you add a model, probe it.
+Most LiteLLM deployments strip parameters the upstream provider rejects. This one forwards them and you get a 400. `compat.samplingSupport()` ANDs two sources, and each can only remove a parameter:
 
-The probe results (2026-09-08):
+1. **The gateway list.** `MODEL_INFO[id].supportedParams` is the snapshotted `model_info.supported_openai_params`. A missing `temperature` / `top_p` / `top_k` means the gateway rejects it. `null` means "the gateway did not say", not "supports nothing". Refresh it with `npm run refresh-pricing`.
+2. **Measured family rules**, because the list is sometimes wrong. It lists `temperature` and `top_p` for `anthropic/claude-haiku-5-5`, which rejects both.
+
+If the gateway changes after a release, `_withSamplingRecovery()` strips a rejected sampling param, retries (once per newly rejected param, at most three times), remembers it per model for the process, and warns once. Any other rejected parameter still throws.
+
+The probe results (2026-11-19):
 
 | Family | `temperature` | `top_p` | `top_k` |
 |---|---|---|---|
-| `claude-sonnet-5`, `claude-opus-*`, `claude-fable-*` | reject | reject | reject |
-| `claude-haiku-4-5` | accept alone | reject with `temperature` | reject |
+| every `claude-*` on the gateway (sonnet-5-5, opus-5-5, fable-5-2, haiku-5-5, and the ids that route to them) | reject | reject | reject |
+| an Anthropic model outside `CLAUDE5_FAMILY_REGEX` | accept alone | reject with `temperature` | accept |
 | any `claude-*` while `reasoning_effort` is set | reject | reject | reject |
 | `gpt-*` | reject | reject | reject |
-| `gemini-*`, `glm-*`, `kimi-*`, `qwen*`, `deepseek-*` | accept | accept | accept |
+| `gemini-3.8-flash` | reject | reject | reject |
+| `gemini-4-*`, `glm-*`, `kimi-*`, `deepseek-*` | accept | accept | accept |
 
 The reasoning row is why `_applySamplingParams()` runs **after** `_applyReasoningParams()` and passes `{ reasoning: !!params.reasoning_effort }` to `samplingSupport()`. Do not reorder them.
 

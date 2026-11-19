@@ -196,11 +196,26 @@ d('live: gateway fact 3 — parameter gating', () => {
 		expect(r.text.length).toBeGreaterThan(0);
 	});
 
-	it('claude-haiku-4-5 accepts temperature without top_p', async () => {
+	it('claude-haiku-4-5 completes with explicit sampling params (gated out since 2026-11-19)', async () => {
+		// claude-haiku-4-5 now routes to claude-haiku-5-5, which rejects all three.
 		const msg = new Message({ ...BASE, temperature: 0.2, topP: 0.9 });
 		const r = await msg.send('Say: ok');
 		bill(r.usage);
 		expect(r.text.length).toBeGreaterThan(0);
+	});
+
+	it('gemini-3.8-flash completes a default Chat and Transformer call (0.2.1)', async () => {
+		// Since 2026-11-19 the gateway 400s temperature / top_p on this model.
+		const opts = { modelName: 'gemini-3.8-flash', maxTokens: 256, logLevel: 'none' };
+		const chat = new Chat(opts);
+		const c = await chat.send('Say: ok');
+		bill(c.usage);
+		expect(c.text.length).toBeGreaterThan(0);
+
+		const t = new Transformer(opts);
+		const r = await t.send({ n: 2 });
+		bill(t.getLastUsage());
+		expect(r).toEqual(expect.any(Object));
 	});
 
 	it('reasoning_effort is accepted', async () => {
